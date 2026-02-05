@@ -113,4 +113,11 @@ export class UsersService {
       .select('firstName lastName points dailyPoints streak studyStats profilePicturePath')
       .exec();
   }
+
+  async updateGeminiKey(userId: string, apiKey: string): Promise<void> {
+    const user = await this.userModel.findByIdAndUpdate(userId, { geminiApiKey: apiKey }).exec();
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+  }
 }

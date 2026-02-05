@@ -71,14 +71,19 @@ export class StudyController {
   }
 
   @Post('generate-voice')
-  async generateVoice(@Body('text') text: string, @Body('lang') lang: string, @Body('isPidgin') isPidgin: boolean) {
+  async generateVoice(
+    @Body('text') text: string, 
+    @Body('lang') lang: string, 
+    @Body('isPidgin') isPidgin: boolean,
+    @Body('userId') userId: string
+  ) {
     try {
       if (!text) throw new BadRequestException('Text is required');
       
       let processedText = text;
       
       if (isPidgin) {
-        processedText = await this.aiService.getResponse(STUDY_PROMPTS.PIDGIN_TRANSLATION(text));
+        processedText = await this.aiService.getResponse(STUDY_PROMPTS.PIDGIN_TRANSLATION(text), userId);
       }
 
       const cleanText = processedText.replace(/[#*`]/g, '').trim();

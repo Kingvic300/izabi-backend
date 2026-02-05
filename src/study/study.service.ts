@@ -62,7 +62,7 @@ export class StudyService {
       }
 
       const [responseText, uploadResult] = await Promise.all([
-        this.aiService.generateFromFiles(prompt, file),
+        this.aiService.generateFromFiles(prompt, file, userId),
         this.cloudinaryService.uploadFile(file).catch(err => {
           console.error(`[StudyService] Cloudinary upload failed for ${type}:`, err);
           return { url: null };

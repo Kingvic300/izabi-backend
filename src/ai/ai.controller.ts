@@ -24,7 +24,7 @@ export class AiController {
       if (!message) throw new BadRequestException('message is required');
 
       await this.aiService.saveMessage(userId, 'user', message);
-      const response = await this.aiService.getResponse(message);
+      const response = await this.aiService.getResponse(message, userId);
       await this.aiService.saveMessage(userId, 'assistant', response);
       
       return { success: true, response };
@@ -45,7 +45,7 @@ export class AiController {
       // Save user message immediately
       this.aiService.saveMessage(userIdToUse, 'user', message);
       
-      const stream = from(this.aiService.getResponseStream(message));
+      const stream = from(this.aiService.getResponseStream(message, userIdToUse));
       const subscription = stream.subscribe({
         next: (event: any) => {
           if (event.data === '[DONE]') {

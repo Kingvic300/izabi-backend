@@ -64,6 +64,9 @@ export class User {
 
   @Prop()
   refreshToken: string;
+
+  @Prop()
+  geminiApiKey: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

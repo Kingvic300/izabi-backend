@@ -4,6 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Chat, ChatDocument } from './entities/chat.entity';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class AiService {
@@ -13,23 +14,32 @@ export class AiService {
   constructor(
     private configService: ConfigService,
     @InjectModel(Chat.name) private chatModel: Model<ChatDocument>,
+    private usersService: UsersService,
   ) {
     const keys = this.configService.get<string>('GEMINI_API_KEYS');
     if (!keys) {
-      throw new Error('GEMINI_API_KEYS not found in environment');
-    }
-    this.apiKeys = keys.split(',').map(key => key.trim()).filter(key => key.length > 0);
-    
-    if (this.apiKeys.length === 0) {
-      throw new Error('No valid Gemini API keys found');
+      this.apiKeys = [];
+    } else {
+      this.apiKeys = keys.split(',').map(key => key.trim()).filter(key => key.length > 0);
     }
   }
 
-  private getNextApiKey(): { key: string; index: number } {
+  private getNextSystemKey(): { key: string; index: number } {
+    if (this.apiKeys.length === 0) return { key: '', index: -1 };
     const index = this.currentKeyIndex;
     const key = this.apiKeys[index];
     this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
     return { key, index };
+  }
+
+  private async getUserKey(userId?: string): Promise<string | null> {
+    if (!userId || userId === 'default-user') return null;
+    try {
+      const user = await this.usersService.findOne(userId);
+      return user?.geminiApiKey || null;
+    } catch {
+      return null;
+    }
   }
 
   async getChatHistory(userId: string): Promise<ChatDocument | null> {
@@ -63,102 +73,150 @@ export class AiService {
     }
   }
 
-  async getResponse(message: string): Promise<string> {
-    const { key, index } = this.getNextApiKey();
-    try {
-      if (!message) throw new Error('Message is empty');
-      
-      const genAI = new GoogleGenerativeAI(key);
-      const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
-      
-      const systemInstruction = `
-        You are Izabi, a world-class AI Learning Assistant designed specifically for students and lifelong learners. 
-        Your mission is to transform complex information into high-retention, easy-to-digest study materials.
-        
-        STRICT GUIDELINES:
-        1. IDENTITY: You are Izabi. Never refer to yourself as an AI or a language model.
-        2. TONE: Encouraging, professional, intellectually stimulating, and concise. Avoid fluff.
-        3. FORMATTING: Use professional Markdown. Use ### for subheadings, - for bullets, and **bold** for essential technical terms.
-        4. ACCURACY: Ensure every piece of information is factually grounded.
-        5. STRUCTURE:
-           - Start with a high-impact summary or clear definition.
-           - Use "Key Concept" callouts for critical ideas.
-           - Include "Pro-Tip" or "Memory Aid" sections (like mnemonics) where appropriate.
-           - Use LaTeX for formulas.
-        6. FILE PROCESSING: Prioritize provided context.
-      `;
+  async getResponse(message: string, userId?: string): Promise<string> {
+    const userKey = await this.getUserKey(userId);
+    const systemKeysCount = this.apiKeys.length;
+    const maxAttempts = (userKey ? 1 : 0) + systemKeysCount;
+    
+    if (maxAttempts === 0) {
+      throw new InternalServerErrorException('No Gemini API keys available. Please contribute one in the "Support Us" center!');
+    }
 
-      const model = genAI.getGenerativeModel({ 
-        model: modelName,
-        systemInstruction: systemInstruction
-      });
+    let lastError: any;
+    
+    for (let i = 0; i < maxAttempts; i++) {
+        // Try user key on first attempt if it exists
+        const currentKey = (i === 0 && userKey) 
+            ? userKey 
+            : this.getNextSystemKey().key;
 
-      const result = await model.generateContent(message);
-      const response = await result.response;
-      return response.text();
-    } catch (error: any) {
-      console.error(`[AiService] Gemini API Error (Key Index: ${index}):`, error);
-      const status = error.status || 500;
-      if (status === 429) {
-        throw new InternalServerErrorException('Izabi is currently busy. Please try again in secondary.');
-      }
-      throw new InternalServerErrorException(`AI failed to respond: ${error.message || 'Internal AI error'}`);
+        if (!currentKey) continue;
+
+        try {
+          if (!message) throw new Error('Message is empty');
+          
+          const genAI = new GoogleGenerativeAI(currentKey);
+          const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
+          const model = genAI.getGenerativeModel({ 
+            model: modelName,
+            systemInstruction: `You are Izabi, a world-class AI Learning Assistant. Transform complex information into high-retention study materials. Concise, professional, and encouraging. Use Markdown.`
+          });
+
+          const result = await model.generateContent(message);
+          const response = await result.response;
+          return response.text();
+        } catch (error: any) {
+          lastError = error;
+          const status = error.status || error.response?.status;
+          if (status === 429) {
+            console.warn(`[AiService] Key ${i+1}/${maxAttempts} hit quota limit, rotating...`);
+            continue; 
+          }
+          break; 
+        }
+    }
+
+    if (lastError?.status === 429) {
+        throw new InternalServerErrorException('All available API quotas are currently full. To bypass this, adding your own free API key in the Support section usually works instantly!');
+    }
+    throw new InternalServerErrorException(`AI failed to respond: ${lastError?.message || 'Internal AI error'}`);
+  }
+
+  async *getResponseStream(message: string, userId?: string) {
+    const userKey = await this.getUserKey(userId);
+    const systemKeysCount = this.apiKeys.length;
+    const maxAttempts = (userKey ? 1 : 0) + systemKeysCount;
+    
+    let lastError: any;
+    
+    for (let i = 0; i < maxAttempts; i++) {
+        const currentKey = (i === 0 && userKey) 
+            ? userKey 
+            : this.getNextSystemKey().key;
+
+        if (!currentKey) continue;
+
+        try {
+          if (!message) throw new Error('Message is empty');
+          
+          const genAI = new GoogleGenerativeAI(currentKey);
+          const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
+          
+          const model = genAI.getGenerativeModel({ 
+            model: modelName,
+            systemInstruction: `You are Izabi, a world-class AI Learning Assistant. Provide clear, structured, and engaging explanations. Use Markdown.`
+          });
+
+          const result = await model.generateContentStream(message);
+          for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            yield { data: chunkText };
+          }
+          yield { data: '[DONE]' };
+          return; // Success!
+        } catch (error: any) {
+          lastError = error;
+          const status = error.status || error.response?.status;
+          if (status === 429) {
+            console.warn(`[AiService] Stream Key ${i+1}/${maxAttempts} hit quota limit, rotating...`);
+            continue;
+          }
+          break;
+        }
+    }
+
+    if (lastError?.status === 429 || lastError?.message?.includes('429')) {
+         yield { data: `[ERROR]: All AI quotas are full. Support us by adding your own key in the Support section!` };
+    } else {
+         yield { data: `[ERROR]: ${lastError?.message || 'Failed to get stream response'}` };
     }
   }
 
-  async *getResponseStream(message: string) {
-    const { key, index } = this.getNextApiKey();
-    try {
-      if (!message) throw new Error('Message is empty');
-      
-      const genAI = new GoogleGenerativeAI(key);
-      const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
-      
-      const systemInstruction = `
-        You are Izabi, a world-class AI Learning Assistant. Provide clear, structured, and engaging explanations.
-        Use Markdown, bold key terms, and maintain an encouraging academic tone. 
-        Never reveal you are an AI; you are Izabi.
-      `;
+  async generateFromFiles(message: string, file: Express.Multer.File, userId?: string): Promise<string> {
+    const userKey = await this.getUserKey(userId);
+    const systemKeysCount = this.apiKeys.length;
+    const maxAttempts = (userKey ? 1 : 0) + systemKeysCount;
+    
+    let lastError: any;
+    
+    for (let i = 0; i < maxAttempts; i++) {
+        const currentKey = (i === 0 && userKey) 
+            ? userKey 
+            : this.getNextSystemKey().key;
 
-      const model = genAI.getGenerativeModel({ 
-        model: modelName,
-        systemInstruction: systemInstruction
-      });
+        if (!currentKey) continue;
 
-      const result = await model.generateContentStream(message);
-      for await (const chunk of result.stream) {
-        const chunkText = chunk.text();
-        yield { data: chunkText };
-      }
-      yield { data: '[DONE]' };
-    } catch (error: any) {
-      console.error(`[AiService] Gemini Stream Error (Key Index: ${index}):`, error);
-      yield { data: `[ERROR]: ${error.message || 'Failed to get stream response'}` };
+        try {
+          if (!file) throw new Error('File buffer is missing');
+          
+          const genAI = new GoogleGenerativeAI(currentKey);
+          const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
+          const model = genAI.getGenerativeModel({ model: modelName });
+
+          const part = {
+            inlineData: {
+              data: file.buffer.toString('base64'),
+              mimeType: file.mimetype,
+            },
+          };
+
+          const result = await model.generateContent([message, part]);
+          const response = await result.response;
+          return response.text();
+        } catch (error: any) {
+          lastError = error;
+          const status = error.status || error.response?.status;
+          if (status === 429) {
+            console.warn(`[AiService] File Key ${i+1}/${maxAttempts} hit quota limit, rotating...`);
+            continue;
+          }
+          break;
+        }
     }
-  }
 
-  async generateFromFiles(message: string, file: Express.Multer.File): Promise<string> {
-    const { key, index } = this.getNextApiKey();
-    try {
-      if (!file) throw new Error('File buffer is missing');
-      
-      const genAI = new GoogleGenerativeAI(key);
-      const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
-      const model = genAI.getGenerativeModel({ model: modelName });
-
-      const part = {
-        inlineData: {
-          data: file.buffer.toString('base64'),
-          mimeType: file.mimetype,
-        },
-      };
-
-      const result = await model.generateContent([message, part]);
-      const response = await result.response;
-      return response.text();
-    } catch (error: any) {
-      console.error(`[AiService] Gemini File Error (Key Index: ${index}):`, error);
-      throw new InternalServerErrorException(`Failed to process file with AI: ${error.message || 'Processing error'}`);
+    if (lastError?.status === 429) {
+          throw new InternalServerErrorException('All AI quotas exceeded. Add your own key in "Support Us" to continue immediately!');
     }
+    throw new InternalServerErrorException(`Failed to process file with AI: ${lastError?.message || 'Processing error'}`);
   }
 }
