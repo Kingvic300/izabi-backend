@@ -15,7 +15,8 @@ export class AuthService {
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
-    const user = await this.usersService.findByEmail(email);
+    const normalizedEmail = email.toLowerCase();
+    const user = await this.usersService.findByEmail(normalizedEmail);
     if (!user) return null;
 
     if (!user.isVerified) {
@@ -38,6 +39,7 @@ export class AuthService {
       ...tokens,
       userId: user.id || user._id,
       email: user.email,
+      role: user.role,
     };
   }
 
@@ -78,7 +80,10 @@ export class AuthService {
   }
 
   async sendOtp(email: string, pass: string, role: string) {
-    const existingUser = await this.usersService.findByEmail(email);
+    const normalizedEmail = email.toLowerCase();
+    console.log(`[OTP] Request received for: ${normalizedEmail}`);
+    
+    const existingUser = await this.usersService.findByEmail(normalizedEmail);
     if (existingUser && existingUser.isVerified) {
       throw new ConflictException('User already exists');
     }
@@ -87,42 +92,60 @@ export class AuthService {
     const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
     if (!existingUser) {
-      await this.usersService.create({ email, password: pass, role });
+      await this.usersService.create({ email: normalizedEmail, password: pass, role });
     } else {
       // Update password for unverified user in case they want to change it
       const hashedPassword = await bcrypt.hash(pass, 10);
       await this.usersService.updatePassword(existingUser._id.toString(), hashedPassword);
     }
     
-    await this.usersService.updateOtp(email, otp, expires);
-    await this.mailService.sendOtp(email, otp);
-    console.log(`[OTP] Sent to ${email}: ${otp} (Expires: ${expires.toISOString()})`); 
+    await this.usersService.updateOtp(normalizedEmail, otp, expires);
+    
+    try {
+      await this.mailService.sendOtp(normalizedEmail, otp);
+      console.log(`[OTP] Sent to ${normalizedEmail}: ${otp} (Expires: ${expires.toISOString()})`); 
+    } catch (error) {
+      console.error(`[OTP] Failed to send email to ${normalizedEmail}:`, error);
+      throw new Error('Failed to send verification email. Please try again later.');
+    }
+
     return { message: 'OTP sent' };
   }
 
   async register(email: string, otp: string) {
-    const user = await this.usersService.findByEmail(email);
-    if (!user) throw new UnauthorizedException('User not found');
+    const normalizedEmail = email.toLowerCase();
+    console.log(`[Register] Verification attempt for: ${normalizedEmail}`);
+    
+    const user = await this.usersService.findByEmail(normalizedEmail);
+    if (!user) {
+      console.warn(`[Register] User not found: ${normalizedEmail}`);
+      throw new UnauthorizedException('User not found');
+    }
 
     if (user.otp !== otp) {
+      console.warn(`[Register] Invalid OTP for ${normalizedEmail}: expected ${user.otp}, got ${otp}`);
       throw new UnauthorizedException('Invalid OTP');
     }
 
     if (user.otpExpires && new Date() > user.otpExpires) {
+      console.warn(`[Register] Expired OTP for ${normalizedEmail}`);
       throw new UnauthorizedException('OTP has expired');
     }
 
-    await this.usersService.verifyUser(email);
+    console.log(`[Register] OTP verified for ${normalizedEmail}. Updating user status...`);
+    await this.usersService.verifyUser(normalizedEmail);
     
     // Auto-login after verification
     const tokens = await this.getTokens(user._id.toString(), user.email, user.role);
     await this.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+    console.log(`[Register] User ${normalizedEmail} successfully verified and logged in.`);
 
     return {
       message: 'User verified',
       ...tokens,
       userId: user._id.toString(),
       email: user.email,
+      role: user.role,
     };
   }
 }
