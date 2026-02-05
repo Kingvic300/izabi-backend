@@ -108,8 +108,9 @@ export class AiService {
         } catch (error: any) {
           lastError = error;
           const status = error.status || error.response?.status;
-          if (status === 429) {
-            console.warn(`[AiService] Key ${i+1}/${maxAttempts} hit quota limit, rotating...`);
+          // Retry on 429 (Quota) OR 403 (Suspended/Forbidden)
+          if (status === 429 || status === 403) {
+            console.warn(`[AiService] Key ${i+1}/${maxAttempts} failed (Status: ${status}), rotating...`);
             continue; 
           }
           break; 
@@ -157,8 +158,9 @@ export class AiService {
         } catch (error: any) {
           lastError = error;
           const status = error.status || error.response?.status;
-          if (status === 429) {
-            console.warn(`[AiService] Stream Key ${i+1}/${maxAttempts} hit quota limit, rotating...`);
+          // Retry on 429 OR 403
+          if (status === 429 || status === 403) {
+            console.warn(`[AiService] Stream Key ${i+1}/${maxAttempts} failed (Status: ${status}), rotating...`);
             continue;
           }
           break;
@@ -206,8 +208,9 @@ export class AiService {
         } catch (error: any) {
           lastError = error;
           const status = error.status || error.response?.status;
-          if (status === 429) {
-            console.warn(`[AiService] File Key ${i+1}/${maxAttempts} hit quota limit, rotating...`);
+          // Retry on 429 OR 403
+          if (status === 429 || status === 403) {
+            console.warn(`[AiService] File Key ${i+1}/${maxAttempts} failed (Status: ${status}), rotating...`);
             continue;
           }
           break;
