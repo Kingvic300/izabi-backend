@@ -23,6 +23,9 @@ export class StudyHistory {
   @Prop({ type: Object })
   questions: any;
 
+  @Prop({ type: Array })
+  flashcards: any[];
+
   @Prop()
   topic: string; // Keeping for backward compatibility if needed
 

@@ -44,6 +44,24 @@ export class User {
   @Prop({ default: false })
   isVerified: boolean;
 
+  @Prop({ default: 0 })
+  points: number;
+
+  @Prop({ default: 0 })
+  dailyPoints: number;
+
+  @Prop({ default: 0 })
+  streak: number;
+
+  @Prop()
+  lastStudyDate: Date;
+
+  @Prop({ type: Object, default: { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 } })
+  studyStats: any;
+
+  @Prop({ type: Object, default: { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' } })
+  pet: any;
+
   @Prop()
   refreshToken: string;
 }

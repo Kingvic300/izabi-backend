@@ -51,4 +51,62 @@ export class UsersService {
   async updateRefreshToken(userId: string, refreshToken: string | null): Promise<void> {
     await this.userModel.findByIdAndUpdate(userId, { refreshToken }).exec();
   }
+
+  async addPoints(userId: string, pointsToAdd: number, actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards'): Promise<UserDocument> {
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lastDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
+
+    // Daily Reset Logic
+    if (!lastDate || today.getTime() > lastDate.getTime()) {
+      user.dailyPoints = 0;
+      
+      // Streak logic
+      if (lastDate) {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        if (lastDate.getTime() === yesterday.getTime()) {
+          user.streak += 1;
+        } else if (lastDate.getTime() < yesterday.getTime()) {
+          user.streak = 1;
+        }
+      } else {
+        user.streak = 1;
+      }
+    }
+
+    user.points += pointsToAdd;
+    user.dailyPoints += pointsToAdd;
+    user.lastStudyDate = now;
+
+    // Update Pet State
+    if (!user.pet) {
+      user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
+    }
+    user.pet.level = Math.floor(user.streak / 5) + 1; // Level up every 5 days
+    user.pet.mood = user.streak > 0 ? 'happy' : 'sad';
+    user.markModified('pet');
+    
+    if (!user.studyStats) {
+      user.studyStats = { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 };
+    }
+    user.studyStats[actionType] = (user.studyStats[actionType] || 0) + 1;
+    
+    // Mark as modified if it's a nested object
+    user.markModified('studyStats');
+    
+    return user.save();
+  }
+
+  async getLeaderboard() {
+    // Current logic: Top users by daily points
+    return this.userModel.find()
+      .sort({ dailyPoints: -1 })
+      .limit(10)
+      .select('firstName lastName points dailyPoints streak studyStats profilePicturePath')
+      .exec();
+  }
 }

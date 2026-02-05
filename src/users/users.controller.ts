@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UnauthorizedException, Get, Param, Put, UseGuards, Request, Inject, forwardRef, Query } from '@nestjs/common';
+import { Controller, Post, Body, UnauthorizedException, Get, Param, Put, UseGuards, Request, Inject, forwardRef, Query, BadRequestException } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
 import { UsersService } from './users.service';
 
@@ -12,12 +12,16 @@ export class UsersController {
 
   @Get('stats')
   async getStats(@Query('userId') userId: string) {
-    // Return aggregate stats
+    if (!userId) throw new BadRequestException('userId is required');
+    const user = await this.usersService.findOne(userId);
+    
+    // Return real aggregate stats from DB
     return {
-      totalQuizzes: 15,
-      averageScore: 85,
-      studyStreak: 12,
-      totalStudyHours: 48,
+      totalPoints: user.points,
+      dailyPoints: user.dailyPoints,
+      studyStreak: user.streak,
+      studyStats: user.studyStats || { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 },
+      isVerified: user.isVerified,
     };
   }
 

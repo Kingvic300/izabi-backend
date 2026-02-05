@@ -11,6 +11,7 @@ import { AiModule } from './ai/ai.module';
 import { StudyModule } from './study/study.module';
 import { MailModule } from './mail/mail.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
+import { ExamsModule } from './exams/exam.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
     StudyModule,
     MailModule,
     CloudinaryModule,
+    ExamsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
