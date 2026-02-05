@@ -1,15 +1,18 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { HfInference } from '@huggingface/inference';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Chat, ChatDocument } from './entities/chat.entity';
 import { UsersService } from '../users/users.service';
+import axios from 'axios';
 
 @Injectable()
 export class AiService {
   private apiKeys: string[];
   private currentKeyIndex = 0;
+  private hf: HfInference;
 
   constructor(
     private configService: ConfigService,
@@ -21,6 +24,11 @@ export class AiService {
       this.apiKeys = [];
     } else {
       this.apiKeys = keys.split(',').map(key => key.trim()).filter(key => key.length > 0);
+    }
+
+    const hfKey = this.configService.get<string>('HUGGINGFACE_API_KEY');
+    if (hfKey) {
+      this.hf = new HfInference(hfKey);
     }
   }
 
@@ -122,10 +130,61 @@ export class AiService {
         }
     }
 
-    if (lastError?.status === 429) {
-        throw new InternalServerErrorException('All available API quotas are currently full. To bypass this, adding your own free API key in the Support section usually works instantly!');
+    if (lastError?.status === 429 || lastError?.status === 403 || lastError?.status === 400) {
+        console.log('[AiService] Gemini failed, attempting fallbacks...');
+        
+        // 1. Try Groq (Usually fastest/best)
+        const groqResponse = await this.getGroqResponse(message);
+        if (groqResponse) return groqResponse;
+
+        // 2. Try Hugging Face
+        const hfResponse = await this.getHuggingFaceResponse(message);
+        if (hfResponse) return hfResponse;
+
+        throw new InternalServerErrorException('All AI services (Gemini, Groq, HF) are currently unavailable. Please provide a working key in the Support section.');
     }
     throw new InternalServerErrorException(`AI failed to respond: ${lastError?.message || 'Internal AI error'}`);
+  }
+
+  private async getGroqResponse(message: string): Promise<string | null> {
+    const apiKey = this.configService.get<string>('GROQ_API_KEY');
+    if (!apiKey) return null;
+
+    try {
+      const model = this.configService.get<string>('GROQ_MODEL') || 'llama-3.3-70b-versatile';
+      const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+        model,
+        messages: [
+          { role: 'system', content: 'You are Izabi, a world-class AI Learning Assistant. Use Markdown.' },
+          { role: 'user', content: message }
+        ]
+      }, {
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+      });
+      return response.data.choices[0].message.content;
+    } catch (error: any) {
+      console.error('[AiService] Groq Error:', error.message);
+      return null;
+    }
+  }
+
+  private async getHuggingFaceResponse(message: string): Promise<string | null> {
+    if (!this.hf) return null;
+    try {
+      const model = this.configService.get<string>('HUGGINGFACE_MODEL') || 'mistralai/Mistral-7B-Instruct-v0.3';
+      const response = await this.hf.chatCompletion({
+        model: model,
+        messages: [
+          { role: 'system', content: 'You are Izabi, a world-class AI Learning Assistant. Provide clear, structured study materials in Markdown.' },
+          { role: 'user', content: message }
+        ],
+        max_tokens: 2000,
+      });
+      return response.choices[0].message.content || null;
+    } catch (error: any) {
+      console.error('[AiService] Hugging Face Error:', error.message);
+      return null;
+    }
   }
 
   async *getResponseStream(message: string, userId?: string) {
@@ -174,8 +233,64 @@ export class AiService {
         }
     }
 
-    if (lastError?.status === 429 || lastError?.message?.includes('429')) {
-         yield { data: `[ERROR]: All AI quotas are full. Support us by adding your own key in the Support section!` };
+    if (lastError?.status === 429 || lastError?.status === 403 || lastError?.status === 400 || lastError?.message?.includes('429')) {
+         console.log('[AiService] Gemini Stream failed, attempting fallbacks...');
+         
+         // Try Groq Stream first
+         const groqKey = this.configService.get<string>('GROQ_API_KEY');
+         if (groqKey) {
+            try {
+                const model = this.configService.get<string>('GROQ_MODEL') || 'llama-3.3-70b-versatile';
+                const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                    model,
+                    messages: [{ role: 'user', content: message }],
+                    stream: true
+                }, {
+                    headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+                    responseType: 'stream'
+                });
+
+                for await (const chunk of response.data) {
+                    const lines = chunk.toString().split('\n').filter((line: string) => line.trim() !== '');
+                    for (const line of lines) {
+                        if (line.includes('[DONE]')) break;
+                        if (line.startsWith('data: ')) {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.choices[0].delta.content) {
+                                yield { data: data.choices[0].delta.content };
+                            }
+                        }
+                    }
+                }
+                yield { data: '[DONE]' };
+                return;
+            } catch (e: any) {
+                console.error('[AiService] Groq Stream Error:', e.message);
+            }
+         }
+
+         // Try HF Stream second
+         try {
+           const hfModel = this.configService.get<string>('HUGGINGFACE_MODEL') || 'mistralai/Mistral-7B-Instruct-v0.3';
+           if (this.hf) {
+             const hfStream = this.hf.chatCompletionStream({
+               model: hfModel,
+               messages: [{ role: 'user', content: message }],
+               max_tokens: 2000,
+             });
+             for await (const chunk of hfStream) {
+               if (chunk.choices[0].delta.content) {
+                 yield { data: chunk.choices[0].delta.content };
+               }
+             }
+             yield { data: '[DONE]' };
+             return;
+           }
+         } catch (e: any) {
+            console.error('[AiService] Hugging Face Stream Error:', e.message);
+         }
+         
+         yield { data: `[ERROR]: All AI quotas (Gemini, Groq, & HF) are full. Support us by adding your own key in the Support section!` };
     } else {
          yield { data: `[ERROR]: ${lastError?.message || 'Failed to get stream response'}` };
     }
