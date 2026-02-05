@@ -108,8 +108,13 @@ export class AiService {
         } catch (error: any) {
           lastError = error;
           const status = error.status || error.response?.status;
-          // Retry on 429 (Quota) OR 403 (Suspended/Forbidden)
-          if (status === 429 || status === 403) {
+          const errorMsg = error.message?.toLowerCase() || '';
+          
+          // Retry on: 
+          // 429 (Quota)
+          // 403 (Suspended)
+          // 400 (Expired/Invalid Key)
+          if (status === 429 || status === 403 || (status === 400 && (errorMsg.includes('key') || errorMsg.includes('invalid')))) {
             console.warn(`[AiService] Key ${i+1}/${maxAttempts} failed (Status: ${status}), rotating...`);
             continue; 
           }
@@ -158,8 +163,10 @@ export class AiService {
         } catch (error: any) {
           lastError = error;
           const status = error.status || error.response?.status;
-          // Retry on 429 OR 403
-          if (status === 429 || status === 403) {
+          const errorMsg = error.message?.toLowerCase() || '';
+
+          // Retry on 429, 403, or 400 (if key related)
+          if (status === 429 || status === 403 || (status === 400 && (errorMsg.includes('key') || errorMsg.includes('invalid')))) {
             console.warn(`[AiService] Stream Key ${i+1}/${maxAttempts} failed (Status: ${status}), rotating...`);
             continue;
           }
@@ -208,8 +215,10 @@ export class AiService {
         } catch (error: any) {
           lastError = error;
           const status = error.status || error.response?.status;
-          // Retry on 429 OR 403
-          if (status === 429 || status === 403) {
+          const errorMsg = error.message?.toLowerCase() || '';
+
+          // Retry on 429, 403, or 400 (if key related)
+          if (status === 429 || status === 403 || (status === 400 && (errorMsg.includes('key') || errorMsg.includes('invalid')))) {
             console.warn(`[AiService] File Key ${i+1}/${maxAttempts} failed (Status: ${status}), rotating...`);
             continue;
           }
