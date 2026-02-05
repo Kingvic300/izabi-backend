@@ -72,7 +72,7 @@ export class User {
   refreshToken: string;
 
   @Prop()
-  geminiApiKey: string;
+  groqApiKey: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

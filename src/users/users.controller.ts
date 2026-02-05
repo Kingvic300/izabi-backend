@@ -87,12 +87,12 @@ export class UsersController {
     }
   }
 
-  @Post('submit-gemini-key')
-  async submitGeminiKey(@Body() body: { userId: string; apiKey: string }) {
+  @Post('submit-groq-key')
+  async submitGroqKey(@Body() body: { userId: string; apiKey: string }) {
     try {
       const { userId, apiKey } = body;
       if (!userId || !apiKey) throw new BadRequestException('userId and apiKey are required');
-      await this.usersService.updateGeminiKey(userId, apiKey);
+      await this.usersService.updateGroqKey(userId, apiKey);
       return { success: true, message: 'API key updated successfully' };
     } catch (error: any) {
       throw new BadRequestException(error.message || 'Failed to update API key');
