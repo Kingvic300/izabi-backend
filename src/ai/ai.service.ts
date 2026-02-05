@@ -12,7 +12,17 @@ import axios from 'axios';
 export class AiService {
   private apiKeys: string[];
   private currentKeyIndex = 0;
+  private grokKeys: string[] = [];
+  private currentGrokIndex = 0;
+  private groqKeys: string[] = [];
+  private currentGroqIndex = 0;
   private hf: HfInference;
+  private userRateLimits = new Map<string, { count: number, resetAt: number }>();
+
+  private readonly MAX_OUTPUT_TOKENS = 1500;
+  private readonly RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+  private readonly MAX_REQUESTS_PER_WINDOW = 5;
+  private readonly MAX_HISTORY_MESSAGES = 10; // "Retrieve less"
 
   constructor(
     private configService: ConfigService,
@@ -30,6 +40,16 @@ export class AiService {
     if (hfKey) {
       this.hf = new HfInference(hfKey);
     }
+
+    const gKeys = this.configService.get<string>('GROK_API_KEYS');
+    if (gKeys) {
+      this.grokKeys = gKeys.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    }
+
+    const groqKeysConfig = this.configService.get<string>('GROQ_API_KEYS');
+    if (groqKeysConfig) {
+      this.groqKeys = groqKeysConfig.split(',').map(k => k.trim()).filter(k => k.length > 0);
+    }
   }
 
   private getNextSystemKey(): { key: string; index: number } {
@@ -38,6 +58,20 @@ export class AiService {
     const key = this.apiKeys[index];
     this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
     return { key, index };
+  }
+
+  private getNextGrokKey(): string | null {
+    if (this.grokKeys.length === 0) return null;
+    const key = this.grokKeys[this.currentGrokIndex];
+    this.currentGrokIndex = (this.currentGrokIndex + 1) % this.grokKeys.length;
+    return key;
+  }
+
+  private getNextGroqKey(): string | null {
+    if (this.groqKeys.length === 0) return null;
+    const key = this.groqKeys[this.currentGroqIndex];
+    this.currentGroqIndex = (this.currentGroqIndex + 1) % this.groqKeys.length;
+    return key;
   }
 
   private async getUserKey(userId?: string): Promise<string | null> {
@@ -53,11 +87,34 @@ export class AiService {
   async getChatHistory(userId: string): Promise<ChatDocument | null> {
     try {
       if (!userId) throw new Error('UserId is required');
-      return await this.chatModel.findOne({ userId }).exec();
+      const chat = await this.chatModel.findOne({ userId }).exec();
+      if (chat && chat.messages.length > this.MAX_HISTORY_MESSAGES) {
+        // "Retrieve less" - just get the most recent messages
+        chat.messages = chat.messages.slice(-this.MAX_HISTORY_MESSAGES);
+      }
+      return chat;
     } catch (error) {
       console.error(`[AiService] Error fetching chat history for ${userId}:`, error);
       throw new InternalServerErrorException('Failed to retrieve chat history');
     }
+  }
+
+  private checkRateLimit(userId: string) {
+    if (!userId || userId === 'default-user') return;
+    
+    const now = Date.now();
+    const limit = this.userRateLimits.get(userId);
+    
+    if (!limit || now > limit.resetAt) {
+      this.userRateLimits.set(userId, { count: 1, resetAt: now + this.RATE_LIMIT_WINDOW_MS });
+      return;
+    }
+    
+    if (limit.count >= this.MAX_REQUESTS_PER_WINDOW) {
+      throw new InternalServerErrorException(`Rate limit exceeded. Please wait ${Math.ceil((limit.resetAt - now) / 1000)}s before your next request.`);
+    }
+    
+    limit.count++;
   }
 
   async saveMessage(userId: string, role: 'user' | 'assistant', content: string) {
@@ -82,88 +139,116 @@ export class AiService {
   }
 
   async getResponse(message: string, userId?: string): Promise<string> {
+    if (userId) {
+        this.checkRateLimit(userId);
+        await this.usersService.checkActivityLimit(userId, 'dailyMessages');
+    }
+    this.currentUserId = userId || null;
     const userKey = await this.getUserKey(userId);
     const systemKeysCount = this.apiKeys.length;
     const maxAttempts = (userKey ? 1 : 0) + systemKeysCount;
     
-    if (maxAttempts === 0) {
-      throw new InternalServerErrorException('No Gemini API keys available. Please contribute one in the "Support Us" center!');
+    if (maxAttempts === 0 && this.groqKeys.length === 0 && this.grokKeys.length === 0) {
+      throw new InternalServerErrorException('No AI API keys available.');
     }
 
     let lastError: any;
     
+    // 1. Try Gemini Keys
     for (let i = 0; i < maxAttempts; i++) {
-        // Try user key on first attempt if it exists
-        const currentKey = (i === 0 && userKey) 
-            ? userKey 
-            : this.getNextSystemKey().key;
-
+        const currentKey = (i === 0 && userKey) ? userKey : this.getNextSystemKey().key;
         if (!currentKey) continue;
 
         try {
-          if (!message) throw new Error('Message is empty');
-          
           const genAI = new GoogleGenerativeAI(currentKey);
           const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
           const model = genAI.getGenerativeModel({ 
             model: modelName,
-            systemInstruction: `You are Izabi, a world-class AI Learning Assistant. Transform complex information into high-retention study materials. Concise, professional, and encouraging. Use Markdown.`
+            systemInstruction: `You are Izabi, a world-class AI Learning Assistant. Use Markdown.`
           });
 
-          const result = await model.generateContent(message);
-          const response = await result.response;
-          return response.text();
+          const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: message }] }],
+            generationConfig: { maxOutputTokens: this.MAX_OUTPUT_TOKENS }
+          });
+          const text = result.response.text();
+          if (userId) await this.usersService.incrementActivityCount(userId, 'dailyMessages');
+          return text;
         } catch (error: any) {
           lastError = error;
           const status = error.status || error.response?.status;
-          const errorMsg = error.message?.toLowerCase() || '';
-          
-          // Retry on: 
-          // 429 (Quota)
-          // 403 (Suspended)
-          // 400 (Expired/Invalid Key)
-          if (status === 429 || status === 403 || (status === 400 && (errorMsg.includes('key') || errorMsg.includes('invalid')))) {
-            console.warn(`[AiService] Key ${i+1}/${maxAttempts} failed (Status: ${status}), rotating...`);
-            continue; 
-          }
-          break; 
+          if (status === 429 || status === 403 || status === 400) continue;
+          break;
         }
     }
 
-    if (lastError?.status === 429 || lastError?.status === 403 || lastError?.status === 400) {
-        console.log('[AiService] Gemini failed, attempting fallbacks...');
-        
-        // 1. Try Groq (Usually fastest/best)
-        const groqResponse = await this.getGroqResponse(message);
-        if (groqResponse) return groqResponse;
-
-        // 2. Try Hugging Face
-        const hfResponse = await this.getHuggingFaceResponse(message);
-        if (hfResponse) return hfResponse;
-
-        throw new InternalServerErrorException('All AI services (Gemini, Groq, HF) are currently unavailable. Please provide a working key in the Support section.');
+    // 2. Try Groq Keys (Fallback)
+    if (this.groqKeys.length > 0) {
+      console.log('[AiService] Gemini failed, attempting Groq rotation...');
+      for (let i = 0; i < this.groqKeys.length; i++) {
+        const key = this.getNextGroqKey();
+        if (key) {
+          const response = await this.getGroqResponseByKey(message, key);
+          if (response) return response;
+        }
+      }
     }
-    throw new InternalServerErrorException(`AI failed to respond: ${lastError?.message || 'Internal AI error'}`);
+
+    // 3. Try Grok (Fallback)
+    const grokResponse = await this.getGrokResponse(message);
+    if (grokResponse) return grokResponse;
+
+    // 4. Try HF (Last resort)
+    const hfResponse = await this.getHuggingFaceResponse(message);
+    if (hfResponse) return hfResponse;
+
+    throw new InternalServerErrorException('All AI services are exhausted.');
   }
 
-  private async getGroqResponse(message: string): Promise<string | null> {
-    const apiKey = this.configService.get<string>('GROQ_API_KEY');
+  private async getGroqResponseByKey(message: string, apiKey: string): Promise<string | null> {
     if (!apiKey) return null;
-
     try {
       const model = this.configService.get<string>('GROQ_MODEL') || 'llama-3.3-70b-versatile';
       const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
         model,
-        messages: [
-          { role: 'system', content: 'You are Izabi, a world-class AI Learning Assistant. Use Markdown.' },
-          { role: 'user', content: message }
-        ]
+        messages: [{ role: 'user', content: message }],
+        max_tokens: this.MAX_OUTPUT_TOKENS
       }, {
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
       });
-      return response.data.choices[0].message.content;
+      const content = response.data.choices[0].message.content;
+      if (this.currentUserId) await this.usersService.incrementActivityCount(this.currentUserId, 'dailyMessages');
+      return content;
     } catch (error: any) {
-      console.error('[AiService] Groq Error:', error.message);
+      console.error(`[AiService] Groq Key Failure:`, error.message);
+      return null;
+    }
+  }
+
+
+
+  private currentUserId: string | null = null;
+
+  private async getGrokResponse(message: string): Promise<string | null> {
+    const key = this.getNextGrokKey();
+    if (!key) return null;
+
+    try {
+      const response = await axios.post('https://api.x.ai/v1/chat/completions', {
+        model: 'grok-beta', 
+        messages: [
+          { role: 'system', content: 'You are Izabi, a world-class AI Learning Assistant.' },
+          { role: 'user', content: message }
+        ],
+        max_tokens: this.MAX_OUTPUT_TOKENS // Cap tokens
+      }, {
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' }
+      });
+      const content = response.data.choices[0].message.content;
+      if (this.currentUserId) await this.usersService.incrementActivityCount(this.currentUserId, 'dailyMessages');
+      return content;
+    } catch (error: any) {
+      console.error('[AiService] Grok (xAI) Error:', error.message);
       return null;
     }
   }
@@ -180,7 +265,9 @@ export class AiService {
         ],
         max_tokens: 2000,
       });
-      return response.choices[0].message.content || null;
+      const content = response.choices[0].message.content || null;
+      if (content && this.currentUserId) await this.usersService.incrementActivityCount(this.currentUserId, 'dailyMessages');
+      return content;
     } catch (error: any) {
       console.error('[AiService] Hugging Face Error:', error.message);
       return null;
@@ -188,6 +275,16 @@ export class AiService {
   }
 
   async *getResponseStream(message: string, userId?: string) {
+    if (userId) {
+        try {
+            this.checkRateLimit(userId);
+            await this.usersService.checkActivityLimit(userId, 'dailyMessages');
+        } catch (e: any) {
+            yield { data: `[ERROR]: ${e.message}` };
+            return;
+        }
+    }
+    this.currentUserId = userId || null;
     const userKey = await this.getUserKey(userId);
     const systemKeysCount = this.apiKeys.length;
     const maxAttempts = (userKey ? 1 : 0) + systemKeysCount;
@@ -212,11 +309,15 @@ export class AiService {
             systemInstruction: `You are Izabi, a world-class AI Learning Assistant. Provide clear, structured, and engaging explanations. Use Markdown.`
           });
 
-          const result = await model.generateContentStream(message);
+          const result = await model.generateContentStream({
+            contents: [{ role: 'user', parts: [{ text: message }] }],
+            generationConfig: { maxOutputTokens: this.MAX_OUTPUT_TOKENS }
+          });
           for await (const chunk of result.stream) {
             const chunkText = chunk.text();
             yield { data: chunkText };
           }
+          if (userId) await this.usersService.incrementActivityCount(userId, 'dailyMessages');
           yield { data: '[DONE]' };
           return; // Success!
         } catch (error: any) {
@@ -236,17 +337,56 @@ export class AiService {
     if (lastError?.status === 429 || lastError?.status === 403 || lastError?.status === 400 || lastError?.message?.includes('429')) {
          console.log('[AiService] Gemini Stream failed, attempting fallbacks...');
          
-         // Try Groq Stream first
-         const groqKey = this.configService.get<string>('GROQ_API_KEY');
-         if (groqKey) {
+         // 1. Try Groq Stream Rotation
+         if (this.groqKeys.length > 0) {
+            for (let i = 0; i < this.groqKeys.length; i++) {
+                const groqKey = this.getNextGroqKey();
+                if (!groqKey) continue;
+                try {
+                    const model = this.configService.get<string>('GROQ_MODEL') || 'llama-3.3-70b-versatile';
+                    const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                        model,
+                        messages: [{ role: 'user', content: message }],
+                        stream: true,
+                        max_tokens: this.MAX_OUTPUT_TOKENS
+                    }, {
+                        headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+                        responseType: 'stream'
+                    });
+
+                    for await (const chunk of response.data) {
+                        const lines = chunk.toString().split('\n').filter((line: string) => line.trim() !== '');
+                        for (const line of lines) {
+                            if (line.includes('[DONE]')) break;
+                            if (line.startsWith('data: ')) {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.choices[0].delta.content) {
+                                    yield { data: data.choices[0].delta.content };
+                                }
+                            }
+                        }
+                    }
+                    if (this.currentUserId) await this.usersService.incrementActivityCount(this.currentUserId, 'dailyMessages');
+                    yield { data: '[DONE]' };
+                    return;
+                } catch (e: any) {
+                    console.warn(`[AiService] Groq Stream Key ${i+1} failed, trying next...`);
+                    continue;
+                }
+            }
+         }
+
+         // 2. Try Grok (xAI) Stream
+         const grokKey = this.getNextGrokKey();
+         if (grokKey) {
             try {
-                const model = this.configService.get<string>('GROQ_MODEL') || 'llama-3.3-70b-versatile';
-                const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-                    model,
+                const response = await axios.post('https://api.x.ai/v1/chat/completions', {
+                    model: 'grok-beta',
                     messages: [{ role: 'user', content: message }],
-                    stream: true
+                    stream: true,
+                    max_tokens: this.MAX_OUTPUT_TOKENS // Cap tokens
                 }, {
-                    headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+                    headers: { 'Authorization': `Bearer ${grokKey}`, 'Content-Type': 'application/json' },
                     responseType: 'stream'
                 });
 
@@ -262,14 +402,15 @@ export class AiService {
                         }
                     }
                 }
+                if (this.currentUserId) await this.usersService.incrementActivityCount(this.currentUserId, 'dailyMessages');
                 yield { data: '[DONE]' };
                 return;
             } catch (e: any) {
-                console.error('[AiService] Groq Stream Error:', e.message);
+                console.error('[AiService] Grok Stream Error:', e.message);
             }
          }
 
-         // Try HF Stream second
+         // 3. Try HF Stream
          try {
            const hfModel = this.configService.get<string>('HUGGINGFACE_MODEL') || 'mistralai/Mistral-7B-Instruct-v0.3';
            if (this.hf) {
@@ -283,6 +424,7 @@ export class AiService {
                  yield { data: chunk.choices[0].delta.content };
                }
              }
+             if (this.currentUserId) await this.usersService.incrementActivityCount(this.currentUserId, 'dailyMessages');
              yield { data: '[DONE]' };
              return;
            }
@@ -297,10 +439,24 @@ export class AiService {
   }
 
   async generateFromFiles(message: string, file: Express.Multer.File, userId?: string): Promise<string> {
+    if (userId) {
+        this.checkRateLimit(userId);
+        await this.usersService.checkActivityLimit(userId, 'dailyDocs');
+    }
+    this.currentUserId = userId || null;
     const userKey = await this.getUserKey(userId);
     const systemKeysCount = this.apiKeys.length;
     const maxAttempts = (userKey ? 1 : 0) + systemKeysCount;
     
+    // Chunk/Truncate: Only process first 1MB of file data to save bandwidth/tokens
+    const MAX_FILE_SIZE = 1024 * 1024;
+    const fileBuffer = file.buffer.length > MAX_FILE_SIZE 
+        ? file.buffer.slice(0, MAX_FILE_SIZE) 
+        : file.buffer;
+
+    // Cap input message
+    const msg = message.length > 2000 ? message.slice(0, 2000) + '...' : message;
+
     let lastError: any;
     
     for (let i = 0; i < maxAttempts; i++) {
@@ -311,7 +467,6 @@ export class AiService {
         if (!currentKey) continue;
 
         try {
-          if (!file) throw new Error('File buffer is missing');
           
           const genAI = new GoogleGenerativeAI(currentKey);
           const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
@@ -319,13 +474,17 @@ export class AiService {
 
           const part = {
             inlineData: {
-              data: file.buffer.toString('base64'),
+              data: fileBuffer.toString('base64'),
               mimeType: file.mimetype,
             },
           };
 
-          const result = await model.generateContent([message, part]);
+          const result = await model.generateContent({
+             contents: [{ role: 'user', parts: [{ text: msg }, part] }],
+             generationConfig: { maxOutputTokens: this.MAX_OUTPUT_TOKENS }
+          });
           const response = await result.response;
+          if (userId) await this.usersService.incrementActivityCount(userId, 'dailyDocs');
           return response.text();
         } catch (error: any) {
           lastError = error;

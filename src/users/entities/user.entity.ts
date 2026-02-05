@@ -49,6 +49,12 @@ export class User {
 
   @Prop({ default: 0 })
   dailyPoints: number;
+  
+  @Prop({ default: 0 })
+  dailyDocs: number;
+
+  @Prop({ default: 0 })
+  dailyMessages: number;
 
   @Prop({ default: 0 })
   streak: number;

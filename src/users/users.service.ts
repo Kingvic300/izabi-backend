@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from './entities/user.entity';
@@ -67,6 +67,8 @@ export class UsersService {
     // Daily Reset Logic
     if (!lastDate || today.getTime() > lastDate.getTime()) {
       user.dailyPoints = 0;
+      user.dailyDocs = 0;
+      user.dailyMessages = 0;
       
       // Streak logic
       if (lastDate) {
@@ -119,5 +121,40 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
+  }
+
+  async checkActivityLimit(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<void> {
+    const user = await this.userModel.findById(userId);
+    if (!user) return; // Should not happen with auth
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lastDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
+
+    // Reset if it's a new day
+    if (!lastDate || today.getTime() > lastDate.getTime()) {
+      user.dailyPoints = 0;
+      user.dailyDocs = 0;
+      user.dailyMessages = 0;
+      user.lastStudyDate = now;
+      await user.save();
+    }
+
+    const limit = type === 'dailyDocs' 
+      ? parseInt(process.env.DAILY_DOC_LIMIT || '20') 
+      : parseInt(process.env.DAILY_MESSAGE_LIMIT || '50');
+
+    if (user[type] >= limit) {
+      throw new BadRequestException(`You have reached your daily limit of ${limit} ${type === 'dailyDocs' ? 'documents' : 'messages'}. Upgrade or wait until tomorrow!`);
+    }
+  }
+
+  async incrementActivityCount(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<void> {
+    const user = await this.userModel.findById(userId);
+    if (!user) return;
+    
+    user[type] = (user[type] || 0) + 1;
+    user.lastStudyDate = new Date();
+    await user.save();
   }
 }
