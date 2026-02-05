@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UnauthorizedException, Get, Param, Put, UseGuards, Request, Inject, forwardRef, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, UnauthorizedException, Get, Param, Put, UseGuards, Request, Inject, forwardRef, Query, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
 import { UsersService } from './users.service';
 
@@ -12,45 +12,78 @@ export class UsersController {
 
   @Get('stats')
   async getStats(@Query('userId') userId: string) {
-    if (!userId) throw new BadRequestException('userId is required');
-    const user = await this.usersService.findOne(userId);
-    
-    // Return real aggregate stats from DB
-    return {
-      totalPoints: user.points,
-      dailyPoints: user.dailyPoints,
-      studyStreak: user.streak,
-      studyStats: user.studyStats || { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 },
-      isVerified: user.isVerified,
-    };
+    try {
+      if (!userId) throw new BadRequestException('userId is required');
+      const user = await this.usersService.findOne(userId);
+      
+      return {
+        success: true,
+        data: {
+          totalPoints: user.points,
+          dailyPoints: user.dailyPoints,
+          studyStreak: user.streak,
+          studyStats: user.studyStats || { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 },
+          isVerified: user.isVerified,
+          pet: user.pet,
+        }
+      };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Failed to fetch stats');
+    }
   }
 
   @Post('login')
   async login(@Body() body: any) {
-    const user = await this.authService.validateUser(body.email, body.password);
-    if (!user) {
-      throw new UnauthorizedException();
+    try {
+      const user = await this.authService.validateUser(body.email, body.password);
+      if (!user) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+      return await this.authService.login(user);
+    } catch (error: any) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new InternalServerErrorException('Login failed');
     }
-    return this.authService.login(user);
   }
 
   @Post('send-verification-otp')
   async sendOtp(@Body() body: any) {
-    return this.authService.sendOtp(body.email, body.password, body.role);
+    try {
+      return await this.authService.sendOtp(body.email, body.password, body.role);
+    } catch (error: any) {
+      if (error.status === 409) throw error;
+      throw new BadRequestException(error.message || 'Failed to send OTP');
+    }
   }
 
   @Post('register')
   async register(@Body() body: any) {
-    return this.authService.register(body.email, body.otp);
+    try {
+      return await this.authService.register(body.email, body.otp);
+    } catch (error: any) {
+      throw new UnauthorizedException(error.message || 'Registration failed');
+    }
   }
 
   @Get('profile/:id')
   async findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+    try {
+      const user = await this.usersService.findOne(id);
+      const { password, refreshToken, ...result } = user.toObject();
+      return { success: true, data: result };
+    } catch (error: any) {
+      throw new BadRequestException('User not found');
+    }
   }
 
   @Put('profile/:id')
   async updateProfile(@Param('id') id: string, @Body() body: any) {
-    return this.usersService.updateProfile(id, body);
+    try {
+      const updatedUser = await this.usersService.updateProfile(id, body);
+      const { password, refreshToken, ...result } = updatedUser.toObject();
+      return { success: true, data: result };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Profile update failed');
+    }
   }
 }

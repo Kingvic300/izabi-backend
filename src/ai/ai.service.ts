@@ -33,21 +33,41 @@ export class AiService {
   }
 
   async getChatHistory(userId: string): Promise<ChatDocument | null> {
-    return this.chatModel.findOne({ userId }).exec();
+    try {
+      if (!userId) throw new Error('UserId is required');
+      return await this.chatModel.findOne({ userId }).exec();
+    } catch (error) {
+      console.error(`[AiService] Error fetching chat history for ${userId}:`, error);
+      throw new InternalServerErrorException('Failed to retrieve chat history');
+    }
   }
 
   async saveMessage(userId: string, role: 'user' | 'assistant', content: string) {
-    let chat = await this.chatModel.findOne({ userId });
-    if (!chat) {
-      chat = new this.chatModel({ userId, messages: [] });
+    try {
+      if (!userId || !content) return;
+      let chat = await this.chatModel.findOne({ userId });
+      if (!chat) {
+        chat = new this.chatModel({ userId, messages: [] });
+      }
+      chat.messages.push({ role, content, timestamp: new Date() });
+      
+      // Limit history size to prevent mongo document bloat
+      if (chat.messages.length > 100) {
+        chat.messages = chat.messages.slice(-100);
+      }
+      
+      return await chat.save();
+    } catch (error) {
+      console.error(`[AiService] Error saving message for ${userId}:`, error);
+      // We don't throw here to avoid disrupting the UI flow just for a save failure
     }
-    chat.messages.push({ role, content, timestamp: new Date() });
-    return chat.save();
   }
 
   async getResponse(message: string): Promise<string> {
-    const { key } = this.getNextApiKey();
+    const { key, index } = this.getNextApiKey();
     try {
+      if (!message) throw new Error('Message is empty');
+      
       const genAI = new GoogleGenerativeAI(key);
       const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
       
@@ -59,13 +79,13 @@ export class AiService {
         1. IDENTITY: You are Izabi. Never refer to yourself as an AI or a language model.
         2. TONE: Encouraging, professional, intellectually stimulating, and concise. Avoid fluff.
         3. FORMATTING: Use professional Markdown. Use ### for subheadings, - for bullets, and **bold** for essential technical terms.
-        4. ACCURACY: Ensure every piece of information is factually grounded in the provided context or general academic knowledge.
+        4. ACCURACY: Ensure every piece of information is factually grounded.
         5. STRUCTURE:
            - Start with a high-impact summary or clear definition.
            - Use "Key Concept" callouts for critical ideas.
            - Include "Pro-Tip" or "Memory Aid" sections (like mnemonics) where appropriate.
-           - Use LaTeX (e.g., $E=mc^2$) for all mathematical or scientific formulas.
-        6. FILE PROCESSING: When analyzing files, prioritize the file content above all else. If information is missing, clearly state so rather than hallucinating.
+           - Use LaTeX for formulas.
+        6. FILE PROCESSING: Prioritize provided context.
       `;
 
       const model = genAI.getGenerativeModel({ 
@@ -76,15 +96,21 @@ export class AiService {
       const result = await model.generateContent(message);
       const response = await result.response;
       return response.text();
-    } catch (error) {
-      console.error('Gemini API Error:', error);
-      throw new InternalServerErrorException('Failed to get response from AI');
+    } catch (error: any) {
+      console.error(`[AiService] Gemini API Error (Key Index: ${index}):`, error);
+      const status = error.status || 500;
+      if (status === 429) {
+        throw new InternalServerErrorException('Izabi is currently busy. Please try again in secondary.');
+      }
+      throw new InternalServerErrorException(`AI failed to respond: ${error.message || 'Internal AI error'}`);
     }
   }
 
   async *getResponseStream(message: string) {
     const { key, index } = this.getNextApiKey();
     try {
+      if (!message) throw new Error('Message is empty');
+      
       const genAI = new GoogleGenerativeAI(key);
       const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
       
@@ -105,15 +131,17 @@ export class AiService {
         yield { data: chunkText };
       }
       yield { data: '[DONE]' };
-    } catch (error) {
-      console.error(`Gemini Stream Error with key index ${index}:`, error);
-      yield { data: '[ERROR]: Failed to get stream response' };
+    } catch (error: any) {
+      console.error(`[AiService] Gemini Stream Error (Key Index: ${index}):`, error);
+      yield { data: `[ERROR]: ${error.message || 'Failed to get stream response'}` };
     }
   }
 
   async generateFromFiles(message: string, file: Express.Multer.File): Promise<string> {
-    const { key } = this.getNextApiKey();
+    const { key, index } = this.getNextApiKey();
     try {
+      if (!file) throw new Error('File buffer is missing');
+      
       const genAI = new GoogleGenerativeAI(key);
       const modelName = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
       const model = genAI.getGenerativeModel({ model: modelName });
@@ -128,9 +156,9 @@ export class AiService {
       const result = await model.generateContent([message, part]);
       const response = await result.response;
       return response.text();
-    } catch (error) {
-      console.error('Gemini File Error:', error);
-      throw new InternalServerErrorException('Failed to process file with AI');
+    } catch (error: any) {
+      console.error(`[AiService] Gemini File Error (Key Index: ${index}):`, error);
+      throw new InternalServerErrorException(`Failed to process file with AI: ${error.message || 'Processing error'}`);
     }
   }
 }

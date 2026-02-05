@@ -9,10 +9,6 @@ export class MailService {
     await this.mailerService.sendMail({
       to: email,
       subject: 'Verification Code - Izabi',
-      template: './otp', // If using templates, which we might not yet
-      context: {
-        otp,
-      },
       // Or just text:
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">

@@ -16,7 +16,13 @@ export class AuthService {
 
   async validateUser(email: string, pass: string): Promise<any> {
     const user = await this.usersService.findByEmail(email);
-    if (user && await bcrypt.compare(pass, user.password)) {
+    if (!user) return null;
+
+    if (!user.isVerified) {
+      throw new UnauthorizedException('Please verify your email first');
+    }
+
+    if (await bcrypt.compare(pass, user.password)) {
       // Mongoose document to object
       const userObj = user.toObject();
       const { password, ...result } = userObj;
@@ -82,26 +88,41 @@ export class AuthService {
 
     if (!existingUser) {
       await this.usersService.create({ email, password: pass, role });
+    } else {
+      // Update password for unverified user in case they want to change it
+      const hashedPassword = await bcrypt.hash(pass, 10);
+      await this.usersService.updatePassword(existingUser._id.toString(), hashedPassword);
     }
     
     await this.usersService.updateOtp(email, otp, expires);
     await this.mailService.sendOtp(email, otp);
-    console.log(`[OTP] Sent to ${email}: ${otp}`); 
+    console.log(`[OTP] Sent to ${email}: ${otp} (Expires: ${expires.toISOString()})`); 
     return { message: 'OTP sent' };
   }
 
   async register(email: string, otp: string) {
     const user = await this.usersService.findByEmail(email);
     if (!user) throw new UnauthorizedException('User not found');
-    
-    // In a real app, check otp and expires
-    // For now, let's just mock it or assume any otp is fine if it matches
-    // But let's check it for "proper structure"
+
     if (user.otp !== otp) {
       throw new UnauthorizedException('Invalid OTP');
     }
 
+    if (user.otpExpires && new Date() > user.otpExpires) {
+      throw new UnauthorizedException('OTP has expired');
+    }
+
     await this.usersService.verifyUser(email);
-    return { message: 'User verified' };
+    
+    // Auto-login after verification
+    const tokens = await this.getTokens(user._id.toString(), user.email, user.role);
+    await this.updateRefreshToken(user._id.toString(), tokens.refreshToken);
+
+    return {
+      message: 'User verified',
+      ...tokens,
+      userId: user._id.toString(),
+      email: user.email,
+    };
   }
 }

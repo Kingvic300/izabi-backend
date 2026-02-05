@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Sse, MessageEvent, Query, Get } from '@nestjs/common';
+import { Controller, Post, Body, Sse, MessageEvent, Query, Get, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { Observable, from } from 'rxjs';
 
@@ -8,15 +8,30 @@ export class AiController {
 
   @Get('history')
   async getHistory(@Query('userId') userId: string) {
-    return this.aiService.getChatHistory(userId || 'default-user');
+    try {
+      if (!userId) throw new BadRequestException('userId is required');
+      const history = await this.aiService.getChatHistory(userId);
+      return { success: true, data: history };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Failed to fetch chat history');
+    }
   }
 
   @Post('chat')
   async chat(@Body('message') message: string, @Body('userId') userId: string) {
-    await this.aiService.saveMessage(userId || 'default-user', 'user', message);
-    const response = await this.aiService.getResponse(message);
-    await this.aiService.saveMessage(userId || 'default-user', 'assistant', response);
-    return { response };
+    try {
+      if (!userId) throw new BadRequestException('userId is required');
+      if (!message) throw new BadRequestException('message is required');
+
+      await this.aiService.saveMessage(userId, 'user', message);
+      const response = await this.aiService.getResponse(message);
+      await this.aiService.saveMessage(userId, 'assistant', response);
+      
+      return { success: true, response };
+    } catch (error: any) {
+      console.error('[AiController] Chat error:', error);
+      throw new InternalServerErrorException(error.message || 'AI failed to respond');
+    }
   }
 
   @Sse('stream')

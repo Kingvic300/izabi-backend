@@ -52,6 +52,10 @@ export class UsersService {
     await this.userModel.findByIdAndUpdate(userId, { refreshToken }).exec();
   }
 
+  async updatePassword(userId: string, hashedPassword: string): Promise<void> {
+    await this.userModel.findByIdAndUpdate(userId, { password: hashedPassword }).exec();
+  }
+
   async addPoints(userId: string, pointsToAdd: number, actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards'): Promise<UserDocument> {
     const user = await this.userModel.findById(userId);
     if (!user) throw new NotFoundException('User not found');
