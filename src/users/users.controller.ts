@@ -32,6 +32,24 @@ export class UsersController {
     }
   }
 
+  @Post('check-in')
+  async checkIn(@Body('userId') userId: string) {
+    try {
+      if (!userId) throw new BadRequestException('userId is required');
+      const user = await this.usersService.checkIn(userId);
+      return {
+        success: true,
+        data: {
+          studyStreak: user.streak,
+          lastStudyDate: user.lastStudyDate,
+          pet: user.pet,
+        }
+      };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Check-in failed');
+    }
+  }
+
   @Post('login')
   async login(@Body() body: any) {
     try {

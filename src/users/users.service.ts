@@ -107,6 +107,50 @@ export class UsersService {
     return user.save();
   }
 
+  async checkIn(userId: string): Promise<UserDocument> {
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const lastDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
+
+    let updated = false;
+
+    if (!lastDate || today.getTime() > lastDate.getTime()) {
+      user.dailyPoints = 0;
+      user.dailyDocs = 0;
+      user.dailyMessages = 0;
+      
+      if (lastDate) {
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        if (lastDate.getTime() === yesterday.getTime()) {
+          user.streak += 1;
+        } else if (lastDate.getTime() < yesterday.getTime()) {
+          user.streak = 1;
+        }
+      } else {
+        user.streak = 1;
+      }
+      
+      user.lastStudyDate = now;
+      updated = true;
+    }
+
+    if (updated) {
+      if (!user.pet) {
+        user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
+      }
+      user.pet.level = Math.floor(user.streak / 5) + 1;
+      user.pet.mood = user.streak > 0 ? 'happy' : 'sad';
+      user.markModified('pet');
+      return user.save();
+    }
+
+    return user;
+  }
+
   async getLeaderboard() {
     // Current logic: Top users by daily points
     return this.userModel.find()
