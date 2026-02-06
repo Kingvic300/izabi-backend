@@ -1,5 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-const pdfParse = require('pdf-parse');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pdfParseLib = require('pdf-parse');
+// Handle inconsistent export behavior between environments
+const pdfParse = pdfParseLib.default || pdfParseLib;
 import * as mammoth from 'mammoth';
 
 export const extractTextFromFile = async (file: Express.Multer.File): Promise<string> => {
