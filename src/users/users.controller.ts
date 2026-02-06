@@ -105,6 +105,17 @@ export class UsersController {
     }
   }
 
+  @Post('logout')
+  async logout(@Body('userId') userId: string) {
+    try {
+      if (!userId) throw new BadRequestException('userId is required');
+      await this.usersService.updateRefreshToken(userId, null);
+      return { success: true, message: 'Logged out successfully' };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Logout failed');
+    }
+  }
+
   @Post('submit-groq-key')
   async submitGroqKey(@Body() body: { userId: string; apiKey: string }) {
     try {
