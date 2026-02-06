@@ -6,6 +6,11 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   
+  // Increase payload size limit
+  const bodyParser = require('body-parser');
+  app.use(bodyParser.json({ limit: '100mb' }));
+  app.use(bodyParser.urlencoded({ limit: '100mb', extended: true }));
+  
   // Enable CORS
   app.enableCors({
     origin: true,

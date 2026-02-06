@@ -1,10 +1,11 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Chat, ChatDocument } from './entities/chat.entity';
 import { UsersService } from '../users/users.service';
 import axios from 'axios';
+import { extractTextFromFile } from '../common/utils/text-extractor';
 
 @Injectable()
 export class AiService {
@@ -211,10 +212,30 @@ export class AiService {
 
   async generateFromFiles(message: string, file: Express.Multer.File, userId?: string): Promise<string> {
     if (userId) {
-        this.checkRateLimit(userId);
-        await this.usersService.checkActivityLimit(userId, 'dailyDocs');
+      this.checkRateLimit(userId);
+      await this.usersService.checkActivityLimit(userId, 'dailyDocs');
     }
     this.currentUserId = userId || null;
-    throw new InternalServerErrorException('File analysis is not supported by current Groq model. Please paste text directly.');
+
+
+
+    try {
+      const extractedText = await extractTextFromFile(file);
+
+      // Combine prompt with extracted text
+      const fullPrompt = `${message}\n\n[DOCUMENT CONTENT START]\n${extractedText}\n[DOCUMENT CONTENT END]\n\nBased on the above document content, please fulfill my request. Note: The text may appear to start or end abruptly as front/back matter has been stripped.`;
+
+      const response = await this.getResponse(fullPrompt, userId);
+      
+      if (userId) {
+        await this.usersService.incrementActivityCount(userId, 'dailyDocs');
+      }
+      
+      return response;
+    } catch (error: any) {
+      console.error('[AiService] Error in generateFromFiles:', error.message);
+      if (error instanceof BadRequestException) throw error;
+      throw new InternalServerErrorException(error.message || 'Failed to process document and generate response');
+    }
   }
 }
