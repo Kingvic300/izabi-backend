@@ -14,7 +14,7 @@ export class AiService {
   private userRateLimits = new Map<string, { count: number, resetAt: number }>();
   private currentUserId: string | null = null;
 
-  private readonly MAX_OUTPUT_TOKENS = 1500;
+  private readonly MAX_OUTPUT_TOKENS = 2500;
   private readonly RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
   private readonly MAX_REQUESTS_PER_WINDOW = 5;
   private readonly MAX_HISTORY_MESSAGES = 10;

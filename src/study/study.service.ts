@@ -85,6 +85,11 @@ export class StudyService {
         fileUrl: uploadResult.url,
         type: type === 'quiz' ? 'quiz' : type,
         createdAt: new Date(),
+        metadata: {
+          charCount: responseText.length,
+          timestamp: new Date().toISOString(),
+          protocol: 'DEEPLAYER_v2'
+        }
       };
 
       if (type === 'flashcards') historyData.flashcards = parsedData;
@@ -96,12 +101,17 @@ export class StudyService {
         this.usersService.addPoints(userId || 'default-user', points, actionType)
       ]);
 
-      return { success: true, [type === 'quiz' ? 'questions' : (type === 'flashcards' ? 'flashcards' : 'summary')]: parsedData };
+      return { 
+        success: true, 
+        yield: parsedData,
+        type,
+        telemetry: historyData.metadata 
+      };
     } catch (error: any) {
-      console.error(`[StudyService] ${type} generation error:`, error);
+      console.error(`[NeuralNode] ${type} generation failure:`, error);
       throw error instanceof BadRequestException || error instanceof InternalServerErrorException 
         ? error 
-        : new InternalServerErrorException(`Failed to generate ${type}`);
+        : new InternalServerErrorException(`Neural synchronization failed for ${type}`);
     }
   }
 }
