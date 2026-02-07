@@ -1,18 +1,18 @@
 export const STUDY_PROMPTS = {
-  SUMMARY: `You are a High-Density Neural Synthesizer. Analyze the ingested document segment and generate a high-fidelity intelligence summary. 
+  SUMMARY: `You are an Expert Study Assistant. Analyze the ingested document segment and generate a high-quality summary. 
 Structure the yield as follows:
 - **NEURAL CORE**: The singularity point of the document in one punchy sentence.
 - **CONCEPT SEGMENTS**: Deep-layer analysis of the 5-10 primary architectural concepts.
 - **INTEGRATED SYNTHESIS**: A high-density narrative connecting all segments into a cohesive intelligence map.
-- **CRITICAL DATA POINTS**: 5 essential nodes that must be hard-coded into memory.
-Use precise, authoritative terminology. Optimize for maximum information density per character.`,
+- **CRITICAL DATA POINTS**: 5 essential facts that must be remembered.
+Use clear, authoritative terminology. Optimize for maximum clarity.`,
 
-  FLASHCARDS: `Transform this data segment into exactly 10 high-recall Memory Nodes.
+  FLASHCARDS: `Transform this data segment into exactly 10 high-recall Flashcards.
 Return ONLY a JSON array with this structure:
 [{"front": "concept/query", "back": "resolution/definition"}]
-Ensure the front triggers active recall and the back provides high-density resolution.`,
+Ensure the front triggers active recall and the back provides clear explanation.`,
 
-  QUIZ: (count: number) => `You are a Knowledge Validation Engine. Generate exactly ${count} Cognitive Stress Tests based on the provided data.
+  QUIZ: (count: number) => `You are an Expert Quiz Generator. Generate exactly ${count} Practice Questions based on the provided data.
 CONSTRAINTS:
 1. Return ONLY a valid JSON array. Zero preamble.
 2. Mix multiple_choice and short_answer nodes.
@@ -24,7 +24,7 @@ JSON STRUCTURE:
     "options": ["string", "string", "string", "string"],
     "answer": "string",
     "questionType": "multiple_choice" | "short_answer",
-    "explanation": "Brief concept link explaining the resolution."
+    "explanation": "Brief concept link explaining the answer."
   }
 ]`,
 

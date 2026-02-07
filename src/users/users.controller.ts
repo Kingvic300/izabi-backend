@@ -68,7 +68,7 @@ export class UsersController {
   @Post('send-verification-otp')
   async sendOtp(@Body() body: any) {
     try {
-      return await this.authService.sendOtp(body.email, body.password, body.role);
+      return await this.authService.sendOtp(body.email, body.password, body.role, body.firstName, body.lastName);
     } catch (error: any) {
       if (error.status === 409) throw error;
       throw new BadRequestException(error.message || 'Failed to send OTP');

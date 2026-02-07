@@ -79,7 +79,7 @@ export class AuthService {
     return tokens;
   }
 
-  async sendOtp(email: string, pass: string, role: string) {
+  async sendOtp(email: string, pass: string, role: string, firstName?: string, lastName?: string) {
     const normalizedEmail = email.toLowerCase();
     console.log(`[OTP] Request received for: ${normalizedEmail}`);
     
@@ -92,11 +92,22 @@ export class AuthService {
     const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
     if (!existingUser) {
-      await this.usersService.create({ email: normalizedEmail, password: pass, role });
+      await this.usersService.create({ 
+        email: normalizedEmail, 
+        password: pass, 
+        role,
+        firstName, 
+        lastName 
+      });
     } else {
       // Update password for unverified user in case they want to change it
       const hashedPassword = await bcrypt.hash(pass, 10);
       await this.usersService.updatePassword(existingUser._id.toString(), hashedPassword);
+      
+      // Also update names if provided and not verified yet
+      if (firstName || lastName) {
+        await this.usersService.updateProfile(existingUser._id.toString(), { firstName, lastName });
+      }
     }
     
     await this.usersService.updateOtp(normalizedEmail, otp, expires);
