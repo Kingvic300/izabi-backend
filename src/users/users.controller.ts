@@ -23,6 +23,7 @@ export class UsersController {
           dailyPoints: user.dailyPoints,
           studyStreak: user.streak,
           studyStats: user.studyStats || { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 },
+          totalStudyMinutes: user.totalStudyMinutes || 0,
           isVerified: user.isVerified,
           pet: user.pet,
         }

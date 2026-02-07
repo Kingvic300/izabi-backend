@@ -59,6 +59,9 @@ export class User {
   @Prop({ default: 0 })
   streak: number;
 
+  @Prop({ default: 0 })
+  totalStudyMinutes: number;
+
   @Prop()
   lastStudyDate: Date;
 

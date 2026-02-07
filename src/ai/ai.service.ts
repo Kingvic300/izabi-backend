@@ -98,6 +98,15 @@ export class AiService {
     }
   }
 
+  async clearChatHistory(userId: string): Promise<void> {
+    try {
+      await this.chatModel.deleteOne({ userId }).exec();
+    } catch (error) {
+      console.error(`[AiService] Error clearing chat history for ${userId}:`, error);
+      throw new InternalServerErrorException('Failed to clear chat history');
+    }
+  }
+
   async getResponse(message: string, userId?: string): Promise<string> {
     if (userId) {
         this.checkRateLimit(userId);

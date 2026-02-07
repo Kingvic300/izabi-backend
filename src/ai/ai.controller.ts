@@ -17,6 +17,17 @@ export class AiController {
     }
   }
 
+  @Post('clear-history')
+  async clearHistory(@Body('userId') userId: string) {
+    try {
+      if (!userId) throw new BadRequestException('userId is required');
+      await this.aiService.clearChatHistory(userId);
+      return { success: true, message: 'Chat history cleared' };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Failed to clear chat history');
+    }
+  }
+
   @Post('chat')
   async chat(@Body('message') message: string, @Body('userId') userId: string) {
     try {

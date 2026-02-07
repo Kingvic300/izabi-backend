@@ -100,6 +100,10 @@ export class UsersService {
       user.studyStats = { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 };
     }
     user.studyStats[actionType] = (user.studyStats[actionType] || 0) + 1;
+
+    // Increment study time
+    const timeMap = { summaries: 5, quizzes: 15, guides: 10, flashcards: 5 };
+    user.totalStudyMinutes = (user.totalStudyMinutes || 0) + (timeMap[actionType] || 5);
     
     // Mark as modified if it's a nested object
     user.markModified('studyStats');
