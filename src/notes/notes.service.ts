@@ -28,4 +28,7 @@ export class NotesService {
     const result = await this.noteModel.deleteOne({ _id: id, userId }).exec();
     if (result.deletedCount === 0) throw new NotFoundException('Note not found');
   }
+  async countAll(): Promise<number> {
+    return this.noteModel.countDocuments().exec();
+  }
 }

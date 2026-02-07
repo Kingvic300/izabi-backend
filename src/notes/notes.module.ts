@@ -10,5 +10,6 @@ import { Note, NoteSchema } from './entities/note.entity';
   ],
   controllers: [NotesController],
   providers: [NotesService],
+  exports: [NotesService],
 })
 export class NotesModule {}

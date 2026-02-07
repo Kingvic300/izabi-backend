@@ -76,6 +76,9 @@ export class User {
 
   @Prop()
   groqApiKey: string;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

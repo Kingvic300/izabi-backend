@@ -205,4 +205,33 @@ export class UsersService {
     user.lastStudyDate = new Date();
     await user.save();
   }
+
+  // Admin methods
+  async findAll(): Promise<UserDocument[]> {
+    return this.userModel.find().select('-password -refreshToken').exec();
+  }
+
+  async getTotalNotes(): Promise<number> {
+    // This would need to be implemented based on your notes model
+    // For now, returning a placeholder
+    return 0;
+  }
+
+  async getContributedKeysCount(): Promise<number> {
+    const count = await this.userModel.countDocuments({ groqApiKey: { $exists: true, $ne: null } }).exec();
+    return count;
+  }
+
+  async getUsersWithKeys(): Promise<UserDocument[]> {
+    return this.userModel.find({ groqApiKey: { $exists: true, $ne: null } })
+      .select('groqApiKey createdAt')
+      .exec();
+  }
+
+  async delete(userId: string): Promise<void> {
+    const result = await this.userModel.findByIdAndDelete(userId).exec();
+    if (!result) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+  }
 }
