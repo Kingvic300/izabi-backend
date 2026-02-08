@@ -26,8 +26,12 @@ export class StudyController {
   }
 
   @Get('leaderboard')
-  async getLeaderboard() {
-    return this.usersService.getLeaderboard();
+  async getLeaderboard(@Query('userId') userId?: string) {
+    const leaderboard = await this.usersService.getLeaderboard(userId);
+    return {
+      success: true,
+      data: leaderboard
+    };
   }
 
   @Post('summarize')

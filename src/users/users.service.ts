@@ -155,20 +155,42 @@ export class UsersService {
     return user;
   }
 
-  async getLeaderboard() {
-    const topStudents = await this.userModel.find()
-      .sort({ points: -1 })
-      .limit(10)
-      .select('firstName lastName points dailyPoints streak studyStats profilePicturePath')
+  async getLeaderboard(userId?: string) {
+    const topStudents = await this.userModel.find({ role: { $ne: 'ADMIN' } })
+      .sort({ points: -1, _id: 1 })
+      .limit(50)
+      .select('firstName lastName email points dailyPoints streak institution studyStats profilePicturePath')
       .exec();
 
-    const topStreaks = await this.userModel.find()
-      .sort({ streak: -1 })
-      .limit(10)
-      .select('firstName lastName points dailyPoints streak studyStats profilePicturePath')
+    const topStreaks = await this.userModel.find({ role: { $ne: 'ADMIN' } })
+      .sort({ streak: -1, _id: 1 })
+      .limit(50)
+      .select('firstName lastName email points dailyPoints streak institution studyStats profilePicturePath')
       .exec();
 
-    return { topStudents, topStreaks };
+    let userRank = { xp: 'Not Ranked', streak: 'Not Ranked' };
+    const isValidId = userId && /^[0-9a-fA-F]{24}$/.test(userId);
+
+    if (isValidId) {
+      try {
+        const user = await this.userModel.findById(userId).exec();
+        if (user && user.role !== 'ADMIN') {
+          const xpRank = await this.userModel.countDocuments({ 
+            role: { $ne: 'ADMIN' },
+            points: { $gt: user.points || 0 } 
+          }) + 1;
+          const streakRank = await this.userModel.countDocuments({ 
+            role: { $ne: 'ADMIN' },
+            streak: { $gt: user.streak || 0 } 
+          }) + 1;
+          userRank = { xp: xpRank.toString(), streak: streakRank.toString() };
+        }
+      } catch (err) {
+        console.error('Error calculating user rank:', err);
+      }
+    }
+
+    return { topStudents, topStreaks, userRank };
   }
 
   async updateGroqKey(userId: string, apiKey: string): Promise<void> {
