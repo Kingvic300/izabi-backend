@@ -156,12 +156,19 @@ export class UsersService {
   }
 
   async getLeaderboard() {
-    // Current logic: Top users by daily points
-    return this.userModel.find()
-      .sort({ dailyPoints: -1 })
+    const topStudents = await this.userModel.find()
+      .sort({ points: -1 })
       .limit(10)
       .select('firstName lastName points dailyPoints streak studyStats profilePicturePath')
       .exec();
+
+    const topStreaks = await this.userModel.find()
+      .sort({ streak: -1 })
+      .limit(10)
+      .select('firstName lastName points dailyPoints streak studyStats profilePicturePath')
+      .exec();
+
+    return { topStudents, topStreaks };
   }
 
   async updateGroqKey(userId: string, apiKey: string): Promise<void> {
@@ -233,5 +240,33 @@ export class UsersService {
     if (!result) {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
+  }
+
+  async feedPet(userId: string): Promise<UserDocument> {
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    if (user.points < 50) {
+      throw new BadRequestException('Not enough points to feed pet (50 required)');
+    }
+
+    user.points -= 50;
+    
+    if (!user.pet) {
+      user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
+    }
+
+    // Feeding increases XP (hidden stat for now) and ensures Happiness
+    // We can simulate leveling up simply by streak for now as per existing logic, 
+    // or add a small boost here. Let's just boost mood and maybe add a 'lastFed' if we were using it.
+    // For this iteration, let's say feeding grants a small "happiness" boost which we track via mood.
+    user.pet.mood = 'super-happy'; 
+    
+    // Optional: chance to level up if we wanted more complex logic, 
+    // but right now level is tied to streak in addPoints. 
+    // Let's just keep it simple: Feeding = Happiness + Points deduction.
+    
+    user.markModified('pet');
+    return user.save();
   }
 }

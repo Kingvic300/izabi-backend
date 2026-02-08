@@ -16,6 +16,9 @@ export class Note {
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: string;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const NoteSchema = SchemaFactory.createForClass(Note);

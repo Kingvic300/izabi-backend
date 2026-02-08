@@ -128,4 +128,22 @@ export class UsersController {
       throw new BadRequestException(error.message || 'Failed to update API key');
     }
   }
+
+  @Post('pet/feed')
+  async feedPet(@Body() body: { userId: string }) {
+    try {
+      if (!body.userId) throw new BadRequestException('userId is required');
+      const user = await this.usersService.feedPet(body.userId);
+      return { 
+        success: true, 
+        message: 'Pet fed successfully', 
+        data: {
+          points: user.points,
+          pet: user.pet
+        }
+      };
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Failed to feed pet');
+    }
+  }
 }

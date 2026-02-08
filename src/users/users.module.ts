@@ -7,12 +7,14 @@ import { User, UserSchema } from './entities/user.entity';
 import { AuthModule } from '../auth/auth.module';
 
 import { NotesModule } from '../notes/notes.module';
+import { QuizModule } from '../quiz/quiz.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
     forwardRef(() => AuthModule),
     NotesModule,
+    QuizModule,
   ],
   controllers: [UsersController, AdminController],
   providers: [UsersService],

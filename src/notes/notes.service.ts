@@ -31,4 +31,8 @@ export class NotesService {
   async countAll(): Promise<number> {
     return this.noteModel.countDocuments().exec();
   }
+
+  async findLatestGlobal(limit: number = 10): Promise<NoteDocument[]> {
+    return this.noteModel.find().sort({ createdAt: -1 }).limit(limit).populate('userId', 'firstName lastName email').exec();
+  }
 }

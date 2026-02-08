@@ -19,6 +19,9 @@ export class QuizResult {
 
   @Prop({ type: Object })
   details: any;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const QuizResultSchema = SchemaFactory.createForClass(QuizResult);

@@ -17,4 +17,17 @@ export class QuizController {
     const result = await this.quizService.create(userId, data);
     return { success: true, data: result };
   }
+
+  @Get('daily-challenge')
+  async getDailyChallenge(@Query('userId') userId: string) {
+    const data = await this.quizService.getDailyChallenge(userId);
+    return { success: true, data };
+  }
+
+  @Get('practice-questions')
+  async getPracticeQuestions(@Query('count') count?: string) {
+    const questionCount = count ? parseInt(count, 10) : 5;
+    const data = await this.quizService.getGenericPracticeQuestions(questionCount);
+    return { success: true, data };
+  }
 }
