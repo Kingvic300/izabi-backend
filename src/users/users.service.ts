@@ -156,15 +156,15 @@ export class UsersService {
   }
 
   async getLeaderboard(userId?: string) {
-    const topStudents = await this.userModel.find({ role: { $ne: 'ADMIN' } })
+    const topStudents = await this.userModel.find({ role: { $nin: ['ADMIN', 'admin'] } })
       .sort({ points: -1, _id: 1 })
-      .limit(50)
+      .limit(100)
       .select('firstName lastName email points dailyPoints streak institution studyStats profilePicturePath')
       .exec();
 
-    const topStreaks = await this.userModel.find({ role: { $ne: 'ADMIN' } })
+    const topStreaks = await this.userModel.find({ role: { $nin: ['ADMIN', 'admin'] } })
       .sort({ streak: -1, _id: 1 })
-      .limit(50)
+      .limit(100)
       .select('firstName lastName email points dailyPoints streak institution studyStats profilePicturePath')
       .exec();
 
@@ -174,13 +174,14 @@ export class UsersService {
     if (isValidId) {
       try {
         const user = await this.userModel.findById(userId).exec();
-        if (user && user.role !== 'ADMIN') {
+        if (user) {
+          // Calculate rank among non-admin users even for admins
           const xpRank = await this.userModel.countDocuments({ 
-            role: { $ne: 'ADMIN' },
+            role: { $nin: ['ADMIN', 'admin'] },
             points: { $gt: user.points || 0 } 
           }) + 1;
           const streakRank = await this.userModel.countDocuments({ 
-            role: { $ne: 'ADMIN' },
+            role: { $nin: ['ADMIN', 'admin'] },
             streak: { $gt: user.streak || 0 } 
           }) + 1;
           userRank = { xp: xpRank.toString(), streak: streakRank.toString() };
