@@ -35,16 +35,18 @@ export class CloudinaryService {
   async generateSignature() {
     const timestamp = Math.round(new Date().getTime() / 1000);
     const secret = this.configService.get<string>('CLOUDINARY_API_SECRET');
+    const folder = 'izabi_pdfs'; // Must match the folder used in frontend
     
     if (!secret) {
       throw new Error('Cloudinary configuration error: API Secret is missing in environment.');
     }
 
-    // SIGNATURE MUST ONLY INCLUDE PARAMS WE SEND IN BODY (EXCEPT EXEMPT ONES)
-    // We simplify to ONLY timestamp to maximize reliability
+    // SIGNATURE MUST INCLUDE ALL PARAMS WE SEND IN BODY
+    // We must include "folder" because the frontend sends it.
     const signature = cloudinary.utils.api_sign_request(
       {
         timestamp: timestamp,
+        folder: folder,
       },
       secret
     );
@@ -54,6 +56,7 @@ export class CloudinaryService {
       timestamp,
       cloudName: this.configService.get('CLOUDINARY_CLOUD_NAME'),
       apiKey: this.configService.get('CLOUDINARY_API_KEY'),
+      folder,
     };
   }
 }
