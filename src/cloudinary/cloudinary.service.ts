@@ -59,4 +59,40 @@ export class CloudinaryService {
       folder,
     };
   }
+
+  getSignedUrl(originalUrl: string): string {
+    try {
+      // Extract public_id and format from URL
+      // Example: https://res.cloudinary.com/.../image/upload/v12345/folder/id.pdf
+      const regex = /\/upload\/(?:v\d+\/)?(.+?)\.(\w+)$/;
+      const match = originalUrl.match(regex);
+      
+      if (match) {
+        const publicId = match[1];
+        const format = match[2];
+
+        console.log(`[Cloudinary] Generating signed URL for publicId: ${publicId}, format: ${format}`);
+
+        // PDFs and other documents use 'raw' resource type in Cloudinary
+        const signedUrl = cloudinary.url(publicId, {
+          resource_type: 'raw',
+          format: format,
+          sign_url: true,
+          type: 'upload',
+          secure: true,
+        });
+
+        console.log(`[Cloudinary] Original URL: ${originalUrl}`);
+        console.log(`[Cloudinary] Signed URL: ${signedUrl}`);
+        
+        return signedUrl;
+      }
+      
+      console.warn(`[Cloudinary] Could not parse URL: ${originalUrl}`);
+      return originalUrl;
+    } catch (error) {
+      console.error('[Cloudinary] Failed to sign URL:', error);
+      return originalUrl;
+    }
+  }
 }

@@ -234,7 +234,14 @@ export class StudyService {
     config: any
   ) {
     try {
-      const responseText = await this.aiService.generateFromUrl(config.prompt, url, history.userId, history._id.toString());
+      // If the URL is restricted (401), we try to sign it if it's a Cloudinary URL
+      let validUrl = url;
+      if (url.includes('cloudinary.com')) {
+          validUrl = this.cloudinaryService.getSignedUrl(url);
+          console.log(`[StudyService] Generated signed URL for Cloudinary resource: ${history._id}`);
+      }
+
+      const responseText = await this.aiService.generateFromUrl(config.prompt, validUrl, history.userId, history._id.toString());
       await this.finalizeMaterial(history, responseText, type, config);
     } catch (error: any) {
       console.error(`[StudyService] Background processing failed for ${history._id}:`, error);
