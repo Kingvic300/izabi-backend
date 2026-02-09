@@ -57,46 +57,77 @@ export class UsersService {
   }
 
 
-  // --- Unified Streak Logic ---
+  // --- Professional Streak Engine ---
 
-  private updateStreakValue(
-    current: number,
-    lastDate: Date | null,
+  /**
+   * Calculates the new streak value based on calendar day continuity.
+   * @returns { streak: number, isNewDay: boolean, isReset: boolean }
+   */
+  private calculateStreakStatus(
+    currentStreak: number,
+    lastActivityDate: Date | null,
     now: Date
-  ): { streak: number } {
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const last = lastDate ? new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate()) : null;
+  ) {
+    if (!lastActivityDate) {
+      return { streak: 1, isNewDay: true, isReset: false };
+    }
 
-    if (!last) return { streak: 1 };
+    // Normalize dates to start of day (00:00:00) in UTC for strict calendar comparison
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const last = new Date(Date.UTC(lastActivityDate.getUTCFullYear(), lastActivityDate.getUTCMonth(), lastActivityDate.getUTCDate()));
 
-    const diffTime = today.getTime() - last.getTime();
-    const diffDays = diffTime / (1000 * 3600 * 24);
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const diffMs = today.getTime() - last.getTime();
+    const diffDays = Math.floor(diffMs / msPerDay);
 
-    if (diffDays === 0) return { streak: current || 1 };
-    if (diffDays === 1) return { streak: (current || 0) + 1 };
-    return { streak: 1 };
+    if (diffDays === 0) {
+      // Still the same calendar day, no streak increase
+      return { streak: currentStreak || 1, isNewDay: false, isReset: false };
+    } 
+    
+    if (diffDays === 1) {
+      // Consecutive day!
+      return { streak: (currentStreak || 0) + 1, isNewDay: true, isReset: false };
+    }
+
+    // Missed at least one full calendar day
+    return { streak: 1, isNewDay: true, isReset: true };
   }
 
-  private updateStreak(user: UserDocument, type: string = 'study') {
+  /**
+   * Updates both the global study streak and activity-specific tracks.
+   * Ensures streaks are strictly earned through meaningful platform engagement.
+   * NOTE: Global Academic Streak is ONLY boosted by actual study tasks, not just logins.
+   */
+  private updateStreak(user: UserDocument, activityType: string = 'study') {
     const now = new Date();
 
-    // 1. Update Global Study Streak
-    const globalResult = this.updateStreakValue(user.streak, user.lastStreakDate, now);
-    user.streak = globalResult.streak;
-    user.longestStreak = Math.max(user.longestStreak || 0, user.streak);
-    user.lastStreakDate = now;
+    // 1. Process Global Academic Streak
+    // Only study tasks (summaries, quizzes, flashcards, etc.) count towards "Academic Brilliance"
+    if (activityType !== 'login') {
+      const globalStatus = this.calculateStreakStatus(user.streak, user.lastStreakDate, now);
+      
+      if (globalStatus.isNewDay) {
+        user.streak = globalStatus.streak;
+        user.longestStreak = Math.max(user.longestStreak || 0, user.streak);
+        user.lastStreakDate = now;
+      }
+    }
 
-    // 2. Update Specific Activity Streak
+    // 2. Process Granular Activity Tracks (Login, Quizzes, etc.)
     if (!user.activityStreaks) user.activityStreaks = {};
-    const activity = user.activityStreaks[type] || { current: 0, longest: 0, lastDate: null };
+    
+    const activity = user.activityStreaks[activityType] || { current: 0, longest: 0, lastDate: null };
+    const activityStatus = this.calculateStreakStatus(activity.current, activity.lastDate, now);
 
-    const activityResult = this.updateStreakValue(activity.current, activity.lastDate, now);
-    activity.current = activityResult.streak;
-    activity.longest = Math.max(activity.longest || 0, activity.current);
-    activity.lastDate = now;
-
-    user.activityStreaks[type] = activity;
-    user.markModified('activityStreaks');
+    if (activityStatus.isNewDay) {
+      activity.current = activityStatus.streak;
+      activity.longest = Math.max(activity.longest || 0, activity.current);
+      activity.lastDate = now;
+      
+      user.activityStreaks[activityType] = activity;
+      user.markModified('activityStreaks');
+    }
   }
 
   // ---

@@ -455,7 +455,7 @@ export class AiService {
     this.currentUserId = userId || null;
 
     try {
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
+      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 120000 });
       const buffer = Buffer.from(response.data);
       const mime = response.headers['content-type'] || 'application/pdf';
       

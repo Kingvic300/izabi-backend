@@ -84,12 +84,11 @@ export class StudyController {
     }
   }
 
-  // HOW: Provides backend signature for secure client-side uploads to Cloudinary
-  // WHY: Bypasses backend as a "middleman" for large 300MB+ files
-  // @Get('upload-signature')
-  // async getSignature() {
-  //   return this.cloudinaryService.generateSignature();
-  // }
+  @UseGuards(JwtAuthGuard)
+  @Get('upload-signature')
+  async getSignature() {
+    return this.cloudinaryService.generateSignature();
+  }
 
   // HOW: Initiates processing for a file uploaded directly to the backend
   // WHY: Removes direct frontend -> Cloudinary dependency, more reliable for restricted environments
