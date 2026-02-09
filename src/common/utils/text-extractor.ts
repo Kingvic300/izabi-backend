@@ -2,21 +2,12 @@ import { BadRequestException } from '@nestjs/common';
 import * as mammoth from 'mammoth';
 import { createWorker } from 'tesseract.js';
 
-// Use require for pdf-parse to handle its commonjs export structure in TS
-const pdfLib = require('pdf-parse');
-
-// DEBUGGING: Inspect the library structure
-console.log('[DocumentNode] pdfLib type:', typeof pdfLib);
-if (typeof pdfLib === 'object') {
-    console.log('[DocumentNode] pdfLib keys:', Object.keys(pdfLib));
-}
-
-const pdf = typeof pdfLib === 'function' ? pdfLib : (pdfLib.default || pdfLib);
-
 // Optimal limits for high-speed processing on Render (alleviates OOM and timeouts)
 const MAX_EXTRACTION_CHARS = 700000; // ~200k tokens - fits most textbooks while remaining fast
 const MAX_PDF_PAGES = 300; // Higher page limit for textbooks
 const MAX_FILE_SIZE_MB = 100; // Allow up to 100MB
+
+
 
 /**
  * Smartly trims text to focus on main content by removing common book/paper noise.
@@ -96,6 +87,9 @@ export const extractTextFromFile = async (file: Express.Multer.File): Promise<st
         max: MAX_PDF_PAGES, // Limit pages for very large documents
       };
       
+      const pdfLib = require('pdf-parse');
+      const pdf = typeof pdfLib === 'function' ? pdfLib : (pdfLib.default || pdfLib);
+
       const data = await pdf(file.buffer, options);
       extractedText = data.text;
       
@@ -183,6 +177,8 @@ export const extractTextPreview = async (file: Express.Multer.File, maxChars = 5
     const mime = file.mimetype;
     
     if (mime === 'application/pdf') {
+      const pdfLib = require('pdf-parse');
+      const pdf = typeof pdfLib === 'function' ? pdfLib : (pdfLib.default || pdfLib);
       const data = await pdf(file.buffer, { max: 3 }); // Only first 3 pages
       return data.text.substring(0, maxChars);
     } else if (mime === 'text/plain') {
