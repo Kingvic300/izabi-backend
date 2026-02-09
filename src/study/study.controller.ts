@@ -8,6 +8,7 @@ import { UsersService } from '../users/users.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { STUDY_PROMPTS } from './study.prompts';
 import { IngestRemoteDto } from './dto/ingest-remote.dto';
+import { IngestTextDto } from './dto/ingest-text.dto';
 
 @Controller('api/study')
 export class StudyController {
@@ -126,6 +127,13 @@ export class StudyController {
     }
     
     return this.studyService.startRemoteGeneration(userId, { url, fileName, type: type as any, options });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('ingest-text')
+  async ingestText(@Body() data: IngestTextDto, @Req() req: any) {
+    const userId = req.user.userId;
+    return this.studyService.startTextIngestion(userId, data);
   }
 
   @Get('job-status/:id')

@@ -143,6 +143,50 @@ export class StudyService {
     };
   }
 
+  async startTextIngestion(
+    userId: string,
+    data: { text: string; fileName: string; type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
+  ) {
+    const config = this.getMaterialConfig(data.type, data.options);
+    
+    const history = await this.create(userId, {
+      fileName: data.fileName,
+      type: data.type,
+      status: 'PROCESSING',
+      metadata: { 
+        protocol: 'TEXT_INJECT_v1',
+        timestamp: new Date().toISOString(),
+        charCount: data.text.length
+      }
+    });
+
+    this.processBackgroundText(history, data.text, config).catch(err => {
+      console.error(`[StudyService] Text ingestion background failure for ${history._id}:`, err);
+    });
+
+    return { 
+      success: true, 
+      jobId: history._id,
+      status: 'PROCESSING'
+    };
+  }
+
+  private async processBackgroundText(
+    history: StudyHistoryDocument, 
+    text: string, 
+    config: any
+  ) {
+    try {
+      const responseText = await this.aiService.processExtractedText(config.prompt, text, history.userId);
+      await this.finalizeMaterial(history, responseText, history.type, config);
+    } catch (error: any) {
+      console.error(`[StudyService] Background text processing failed:`, error);
+      history.status = 'FAILED';
+      (history.metadata as any).error = error.message;
+      await history.save();
+    }
+  }
+
   private async processBackground(
     history: StudyHistoryDocument, 
     type: string, 

@@ -488,7 +488,7 @@ export class AiService {
     }
   }
 
-  private async processExtractedText(message: string, extractedText: string, userId?: string): Promise<string> {
+  async processExtractedText(message: string, extractedText: string, userId?: string): Promise<string> {
     if (!extractedText) throw new BadRequestException('No text extracted from file');
 
     // Allow short topic titles (e.g., "Biology", "AI", "Math")
