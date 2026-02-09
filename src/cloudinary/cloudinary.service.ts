@@ -40,10 +40,11 @@ export class CloudinaryService {
       throw new Error('Cloudinary configuration error: API Secret is missing in environment.');
     }
 
+    // SIGNATURE MUST ONLY INCLUDE PARAMS WE SEND IN BODY (EXCEPT EXEMPT ONES)
+    // We simplify to ONLY timestamp to maximize reliability
     const signature = cloudinary.utils.api_sign_request(
       {
         timestamp: timestamp,
-        folder: 'izabi_pdfs',
       },
       secret
     );
@@ -53,7 +54,6 @@ export class CloudinaryService {
       timestamp,
       cloudName: this.configService.get('CLOUDINARY_CLOUD_NAME'),
       apiKey: this.configService.get('CLOUDINARY_API_KEY'),
-      folder: 'izabi_pdfs'
     };
   }
 }

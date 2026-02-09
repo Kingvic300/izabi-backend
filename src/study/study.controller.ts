@@ -79,9 +79,31 @@ export class StudyController {
 
   // HOW: Provides backend signature for secure client-side uploads to Cloudinary
   // WHY: Bypasses backend as a "middleman" for large 300MB+ files
-  @Get('upload-signature')
-  async getSignature() {
-    return this.cloudinaryService.generateSignature();
+  // @Get('upload-signature')
+  // async getSignature() {
+  //   return this.cloudinaryService.generateSignature();
+  // }
+
+  // HOW: Initiates processing for a file uploaded directly to the backend
+  // WHY: Removes direct frontend -> Cloudinary dependency, more reliable for restricted environments
+  @Post('ingest-direct')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
+  async ingestDirect(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('userId') userId: string,
+    @Body('type') type: string,
+    @Body('options') options?: string,
+  ) {
+    if (!file) throw new BadRequestException('File is required for direct ingestion.');
+    if (!userId) throw new BadRequestException('userId is required for ingestion mapping.');
+    
+    // FormData bodies are strings, need to parse options if provided
+    const parsedOptions = options ? JSON.parse(options) : {};
+    
+    return this.studyService.startDirectUpload(userId, file, { 
+      type: type as any, 
+      options: parsedOptions 
+    });
   }
 
   // HOW: Triggers background processing for a file already hosted on Cloudinary

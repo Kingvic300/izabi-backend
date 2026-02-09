@@ -55,15 +55,72 @@ export class StudyService {
     return { prompt, points, actionType };
   }
 
-  // HOW: Initiates processing for a file already uploaded to Cloudinary
-  // WHY: Bypasses backend memory limits by offloading the heavy download to a background process
+  // HOW: Initiates processing for a file uploaded directly to the backend
+  // WHY: Removes direct frontend -> Cloudinary dependency for high-security or restrictive networks
+  async startDirectUpload(
+    userId: string,
+    file: Express.Multer.File,
+    data: { type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
+  ) {
+    const config = this.getMaterialConfig(data.type, data.options);
+    
+    // Create record in PROCESSING state
+    const history = await this.create(userId, {
+      fileName: file.originalname,
+      type: data.type,
+      status: 'PROCESSING',
+      metadata: { 
+        protocol: 'DIRECT_ASYNC_v1',
+        timestamp: new Date().toISOString(),
+        fileSize: file.size
+      }
+    });
+
+    // Start detached background task
+    this.processBackgroundDirect(history, file, config).catch(err => {
+      console.error(`[StudyService] Direct background failure for ${history._id}:`, err);
+    });
+
+    return { 
+      success: true, 
+      jobId: history._id,
+      status: 'PROCESSING'
+    };
+  }
+
+  private async processBackgroundDirect(
+    history: StudyHistoryDocument, 
+    file: Express.Multer.File,
+    config: any
+  ) {
+    try {
+      const [responseText, uploadResult] = await Promise.all([
+        this.aiService.generateFromFiles(config.prompt, file, history.userId),
+        this.cloudinaryService.uploadFile(file).catch(err => {
+          console.warn(`[StudyService] BG Cloudinary fallback failed:`, err);
+          return null;
+        }),
+      ]);
+
+      if (uploadResult && (uploadResult as any).secure_url) {
+        history.fileUrl = (uploadResult as any).secure_url;
+      }
+
+      await this.finalizeMaterial(history, responseText, history.type, config);
+    } catch (error: any) {
+      console.error(`[StudyService] Direct BG processing failed for ${history._id}:`, error);
+      history.status = 'FAILED';
+      (history.metadata as any).error = error.message;
+      await history.save();
+    }
+  }
+
   async startRemoteGeneration(
     userId: string,
     data: { url: string; fileName: string; type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
   ) {
     const config = this.getMaterialConfig(data.type, data.options);
     
-    // Create record in PROCESSING state
     const history = await this.create(userId, {
       fileName: data.fileName,
       fileUrl: data.url,
@@ -75,7 +132,6 @@ export class StudyService {
       }
     });
 
-    // Start detached background task
     this.processBackground(history, data.type, data.url, config).catch(err => {
       console.error(`[StudyService] Async background failure for ${history._id}:`, err);
     });
@@ -147,13 +203,13 @@ export class StudyService {
         this.aiService.generateFromFiles(config.prompt, file, userId),
         this.cloudinaryService.uploadFile(file).catch(err => {
           console.error(`[StudyService] Cloudinary upload failed for ${type}:`, err);
-          return { url: null };
+          return null;
         }),
       ]);
 
       const historyData: any = {
         fileName: file.originalname,
-        fileUrl: uploadResult.url,
+        fileUrl: uploadResult && (uploadResult as any).secure_url ? (uploadResult as any).secure_url : '',
         type: type === 'quiz' ? 'quiz' : type,
         status: 'COMPLETED',
         metadata: {
