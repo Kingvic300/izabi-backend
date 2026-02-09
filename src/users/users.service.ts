@@ -56,44 +56,84 @@ export class UsersService {
     await this.userModel.findByIdAndUpdate(userId, { password: hashedPassword }).exec();
   }
 
+
+  // --- Unified Streak Logic ---
+  
+  private updateStreak(user: UserDocument) {
+    const now = new Date();
+    // Normalize to midnight to compare calendar dates safely
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    // Normalize user's last streak activity date (not just general study date)
+    const lastStreakDate = user.lastStreakDate 
+      ? new Date(user.lastStreakDate.getFullYear(), user.lastStreakDate.getMonth(), user.lastStreakDate.getDate())
+      : null;
+
+    // Case 1: First activity ever
+    if (!lastStreakDate) {
+      user.streak = 1;
+      user.longestStreak = Math.max(user.longestStreak || 0, 1);
+      user.lastStreakDate = now;
+      return;
+    }
+
+    const diffTime = today.getTime() - lastStreakDate.getTime();
+    const diffDays = diffTime / (1000 * 3600 * 24);
+
+    // Case 2: Already active today -> No change
+    if (diffDays === 0) {
+      return;
+    }
+
+    // Case 3: Consecutive day (Yesterday vs Today) -> Increment
+    if (diffDays === 1) {
+      user.streak += 1;
+    } 
+    // Case 4: Missed a day (or more) -> Reset
+    else if (diffDays > 1) {
+      user.streak = 1;
+    }
+    // (Negative diffDays would mean time travel or timezone weirdness; we ignore or treat as today)
+
+    // Update stats
+    user.longestStreak = Math.max(user.longestStreak || 0, user.streak);
+    user.lastStreakDate = now;
+  }
+
+  // ---
+
   async addPoints(userId: string, pointsToAdd: number, actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards'): Promise<UserDocument> {
     const user = await this.userModel.findById(userId);
     if (!user) throw new NotFoundException('User not found');
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const lastDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
+    const lastStudyDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
 
-    // Daily Reset Logic
-    if (!lastDate || today.getTime() > lastDate.getTime()) {
+    // Daily Limits Reset
+    if (!lastStudyDate || today.getTime() > lastStudyDate.getTime()) {
       user.dailyPoints = 0;
       user.dailyDocs = 0;
       user.dailyMessages = 0;
-      
-      // Streak logic
-      if (lastDate) {
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        if (lastDate.getTime() === yesterday.getTime()) {
-          user.streak += 1;
-        } else if (lastDate.getTime() < yesterday.getTime()) {
-          user.streak = 1;
-        }
-      } else {
-        user.streak = 1;
-      }
     }
+
+    // Apply Streak Logic
+    this.updateStreak(user);
 
     user.points += pointsToAdd;
     user.dailyPoints += pointsToAdd;
-    user.lastStudyDate = now;
+    user.lastStudyDate = now; // Tracks general activity time
 
     // Update Pet State
     if (!user.pet) {
       user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
     }
-    user.pet.level = Math.floor(user.streak / 5) + 1; // Level up every 5 days
-    user.pet.mood = user.streak > 0 ? 'happy' : 'sad';
+    // Level is derived from streak
+    user.pet.level = Math.floor(user.streak / 5) + 1; 
+    
+    // Mood logic: Happy if streak > 1, Normal if streak = 1
+    user.pet.mood = user.streak > 1 ? 'happy' : 'neutral';
+    
     user.markModified('pet');
     
     if (!user.studyStats) {
@@ -105,7 +145,6 @@ export class UsersService {
     const timeMap = { summaries: 5, quizzes: 15, guides: 10, flashcards: 5 };
     user.totalStudyMinutes = (user.totalStudyMinutes || 0) + (timeMap[actionType] || 5);
     
-    // Mark as modified if it's a nested object
     user.markModified('studyStats');
     
     return user.save();
@@ -117,37 +156,35 @@ export class UsersService {
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const lastDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
+    const lastStudyDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
 
     let updated = false;
 
-    if (!lastDate || today.getTime() > lastDate.getTime()) {
+    // Reset daily counters if new day
+    if (!lastStudyDate || today.getTime() > lastStudyDate.getTime()) {
       user.dailyPoints = 0;
       user.dailyDocs = 0;
       user.dailyMessages = 0;
-      
-      if (lastDate) {
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        if (lastDate.getTime() === yesterday.getTime()) {
-          user.streak += 1;
-        } else if (lastDate.getTime() < yesterday.getTime()) {
-          user.streak = 1;
-        }
-      } else {
-        user.streak = 1;
-      }
-      
-      user.lastStudyDate = now;
       updated = true;
     }
 
+    // Check streak
+    const oldStreak = user.streak;
+    this.updateStreak(user);
+    if (user.streak !== oldStreak) {
+       updated = true;
+    }
+    
+    // Always update lastStudyDate on check-in
+    user.lastStudyDate = now;
+    
     if (updated) {
+      // Pet update
       if (!user.pet) {
         user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
       }
       user.pet.level = Math.floor(user.streak / 5) + 1;
-      user.pet.mood = user.streak > 0 ? 'happy' : 'sad';
+      user.pet.mood = user.streak > 1 ? 'happy' : 'neutral';
       user.markModified('pet');
       return user.save();
     }

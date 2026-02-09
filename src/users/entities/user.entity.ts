@@ -60,6 +60,12 @@ export class User {
   streak: number;
 
   @Prop({ default: 0 })
+  longestStreak: number;
+
+  @Prop()
+  lastStreakDate: Date;
+
+  @Prop({ default: 0 })
   totalStudyMinutes: number;
 
   @Prop()

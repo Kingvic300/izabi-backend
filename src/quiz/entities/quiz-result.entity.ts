@@ -20,6 +20,26 @@ export class QuizResult {
   @Prop({ type: Object })
   details: any;
 
+  // HOW: Track test lifecycle from generation to completion
+  // WHY: Prevents retaking same test, enforces time limits, enables cooldown
+  @Prop({ default: 'PENDING' })
+  status: string; // PENDING, STARTED, COMPLETED, EXPIRED
+
+  // HOW: Store generated questions to validate answers server-side
+  // WHY: Prevents client manipulation, ensures consistent grading
+  @Prop({ type: Object })
+  questions: any;
+
+  // HOW: Record time taken to complete
+  // WHY: Detect cheating, analyze study patterns
+  @Prop()
+  timeTaken: number;
+
+  // HOW: Duration limit in seconds
+  // WHY: Enforce timed challenge constraint
+  @Prop()
+  durationLimit: number;
+
   createdAt?: Date;
   updatedAt?: Date;
 }

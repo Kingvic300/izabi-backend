@@ -31,4 +31,21 @@ export class MailService {
       throw new Error('Failed to send verification email via API.');
     }
   }
+
+  // HOW: Send arbitrary HTML content to a specific recipient
+  // WHY: Needed for audit alerts and digests targeting the system administrator
+  async sendCustomEmail(toEmail: string, subject: string, htmlContent: string) {
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = htmlContent;
+    sendSmtpEmail.sender = { name: 'Izabi System Monitor', email: this.configService.get<string>('MAIL_FROM') };
+    sendSmtpEmail.to = [{ email: toEmail }];
+
+    try {
+      await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+    } catch (error) {
+      console.error(`[MailService] Custom Email API Error:`, error.response?.text || error.message);
+      // No throw here to allow non-blocking audit flow if used in Tap/Tap
+    }
+  }
 }
