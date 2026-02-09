@@ -88,7 +88,17 @@ export const extractTextFromFile = async (file: Express.Multer.File): Promise<st
       };
       
       const pdfLib = require('pdf-parse');
-      const pdf = typeof pdfLib === 'function' ? pdfLib : (pdfLib.default || pdfLib);
+      let pdf = typeof pdfLib === 'function' ? pdfLib : pdfLib.default;
+      
+      if (typeof pdf !== 'function') {
+          console.warn('[DocumentNode] pdf-parse fallback check. Lib keys:', Object.keys(pdfLib || {}));
+          // In some weird CJS/ESM interop edge cases, the function might be nested or the lib object itself
+          pdf = pdfLib; 
+      }
+      
+      if (typeof pdf !== 'function') {
+           throw new Error(`pdf-parse library load failed. Is not a function. Type: ${typeof pdf}`);
+      }
 
       const data = await pdf(file.buffer, options);
       extractedText = data.text;
@@ -178,7 +188,11 @@ export const extractTextPreview = async (file: Express.Multer.File, maxChars = 5
     
     if (mime === 'application/pdf') {
       const pdfLib = require('pdf-parse');
-      const pdf = typeof pdfLib === 'function' ? pdfLib : (pdfLib.default || pdfLib);
+      let pdf = typeof pdfLib === 'function' ? pdfLib : pdfLib.default;
+      if (typeof pdf !== 'function') pdf = pdfLib;
+      
+      if (typeof pdf !== 'function') throw new Error('pdf-parse failed to load');
+
       const data = await pdf(file.buffer, { max: 3 }); // Only first 3 pages
       return data.text.substring(0, maxChars);
     } else if (mime === 'text/plain') {
