@@ -68,7 +68,15 @@ export const extractTextFromFile = async (
 
     if (mime === 'application/pdf') {
       const pdfLib = await import('pdf-parse');
-      const pdfParse = (pdfLib as any).default || pdfLib;
+      let pdfParse = (pdfLib as any).default || (pdfLib as any).PDFParse || pdfLib;
+
+      if (typeof pdfParse !== 'function') {
+           if ((pdfLib as any).PDFParse) pdfParse = (pdfLib as any).PDFParse;
+      }
+      
+      if (typeof pdfParse !== 'function') {
+           throw new Error(`pdf-parse library load failed. Is not a function. Type: ${typeof pdfParse}`);
+      }
 
       const data = await pdfParse(file.buffer, {
         max: MAX_PDF_PAGES,
@@ -162,8 +170,18 @@ export const extractTextPreview = async (
 
     if (file.mimetype === 'application/pdf') {
       const pdfLib = await import('pdf-parse');
-      const pdfParse = (pdfLib as any).default || pdfLib;
-      const data = await pdfParse(file.buffer, { max: 3 });
+      let pdfParse = (pdfLib as any).default || (pdfLib as any).PDFParse || pdfLib;
+      
+      if (typeof pdfParse !== 'function') {
+           console.warn('[DocumentNode] pdf-parse fallback. Lib keys:', Object.keys(pdfLib || {}));
+           // Based on logs, PDFParse might be the function
+           if ((pdfLib as any).PDFParse) pdfParse = (pdfLib as any).PDFParse;
+      }
+
+      if (typeof pdfParse !== 'function') {
+           // One last try: if pdfLib itself is the namespace and has no default, but we saw PDFParse key...
+           throw new Error(`pdf-parse library load failed. Is not a function. Type: ${typeof pdfParse}`);
+      } const data = await pdfParse(file.buffer, { max: 3 });
       return data.text.substring(0, maxChars);
     }
 
