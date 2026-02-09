@@ -1,11 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { v2 as cloudinary, UploadApiErrorResponse, UploadApiResponse } from 'cloudinary';
 import * as streamifier from 'streamifier';
+import { ConfigService } from '@nestjs/config';
 
 export type CloudinaryResponse = UploadApiResponse | UploadApiErrorResponse;
 
 @Injectable()
 export class CloudinaryService {
+  constructor(private configService: ConfigService) {}
+
   uploadFile(file: Express.Multer.File): Promise<CloudinaryResponse> {
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
@@ -31,19 +34,25 @@ export class CloudinaryService {
   // WHY: Allows the backend to remain memory-safe by never touching the large file stream
   async generateSignature() {
     const timestamp = Math.round(new Date().getTime() / 1000);
+    const secret = this.configService.get<string>('CLOUDINARY_API_SECRET');
+    
+    if (!secret) {
+      throw new Error('Cloudinary configuration error: API Secret is missing in environment.');
+    }
+
     const signature = cloudinary.utils.api_sign_request(
       {
         timestamp: timestamp,
         folder: 'izabi_pdfs',
       },
-      process.env.CLOUDINARY_API_SECRET || ''
+      secret
     );
 
     return {
       signature,
       timestamp,
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-      apiKey: process.env.CLOUDINARY_API_KEY,
+      cloudName: this.configService.get('CLOUDINARY_CLOUD_NAME'),
+      apiKey: this.configService.get('CLOUDINARY_API_KEY'),
       folder: 'izabi_pdfs'
     };
   }
