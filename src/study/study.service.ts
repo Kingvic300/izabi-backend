@@ -95,7 +95,7 @@ export class StudyService {
   ) {
     try {
       const [responseText, uploadResult] = await Promise.all([
-        this.aiService.generateFromFiles(config.prompt, file, history.userId),
+        this.aiService.generateFromFiles(config.prompt, file, history.userId, history._id.toString()),
         this.cloudinaryService.uploadFile(file).catch(err => {
           console.warn(`[StudyService] BG Cloudinary fallback failed:`, err);
           return null;
@@ -150,7 +150,7 @@ export class StudyService {
     config: any
   ) {
     try {
-      const responseText = await this.aiService.generateFromUrl(config.prompt, url, history.userId);
+      const responseText = await this.aiService.generateFromUrl(config.prompt, url, history.userId, history._id.toString());
       await this.finalizeMaterial(history, responseText, type, config);
     } catch (error: any) {
       console.error(`[StudyService] Background processing failed for ${history._id}:`, error);
@@ -197,10 +197,12 @@ export class StudyService {
   ) {
     try {
       if (!file) throw new BadRequestException('File is required');
+      const history = new this.studyModel({ userId });
+      
       const config = this.getMaterialConfig(type, options);
 
       const [responseText, uploadResult] = await Promise.all([
-        this.aiService.generateFromFiles(config.prompt, file, userId),
+        this.aiService.generateFromFiles(config.prompt, file, userId, history._id.toString()),
         this.cloudinaryService.uploadFile(file).catch(err => {
           console.error(`[StudyService] Cloudinary upload failed for ${type}:`, err);
           return null;
@@ -219,7 +221,7 @@ export class StudyService {
         }
       };
 
-      const history = new this.studyModel({ ...historyData, userId });
+      history.set(historyData);
       await this.finalizeMaterial(history, responseText, type, config);
 
       return { 

@@ -58,46 +58,45 @@ export class UsersService {
 
 
   // --- Unified Streak Logic ---
-  
-  private updateStreak(user: UserDocument) {
-    const now = new Date();
-    // Normalize to midnight to compare calendar dates safely
+
+  private updateStreakValue(
+    current: number,
+    lastDate: Date | null,
+    now: Date
+  ): { streak: number } {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-    // Normalize user's last streak activity date (not just general study date)
-    const lastStreakDate = user.lastStreakDate 
-      ? new Date(user.lastStreakDate.getFullYear(), user.lastStreakDate.getMonth(), user.lastStreakDate.getDate())
-      : null;
+    const last = lastDate ? new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate()) : null;
 
-    // Case 1: First activity ever
-    if (!lastStreakDate) {
-      user.streak = 1;
-      user.longestStreak = Math.max(user.longestStreak || 0, 1);
-      user.lastStreakDate = now;
-      return;
-    }
+    if (!last) return { streak: 1 };
 
-    const diffTime = today.getTime() - lastStreakDate.getTime();
+    const diffTime = today.getTime() - last.getTime();
     const diffDays = diffTime / (1000 * 3600 * 24);
 
-    // Case 2: Already active today -> No change
-    if (diffDays === 0) {
-      return;
-    }
+    if (diffDays === 0) return { streak: current || 1 };
+    if (diffDays === 1) return { streak: (current || 0) + 1 };
+    return { streak: 1 };
+  }
 
-    // Case 3: Consecutive day (Yesterday vs Today) -> Increment
-    if (diffDays === 1) {
-      user.streak += 1;
-    } 
-    // Case 4: Missed a day (or more) -> Reset
-    else if (diffDays > 1) {
-      user.streak = 1;
-    }
-    // (Negative diffDays would mean time travel or timezone weirdness; we ignore or treat as today)
+  private updateStreak(user: UserDocument, type: string = 'study') {
+    const now = new Date();
 
-    // Update stats
+    // 1. Update Global Study Streak
+    const globalResult = this.updateStreakValue(user.streak, user.lastStreakDate, now);
+    user.streak = globalResult.streak;
     user.longestStreak = Math.max(user.longestStreak || 0, user.streak);
     user.lastStreakDate = now;
+
+    // 2. Update Specific Activity Streak
+    if (!user.activityStreaks) user.activityStreaks = {};
+    const activity = user.activityStreaks[type] || { current: 0, longest: 0, lastDate: null };
+
+    const activityResult = this.updateStreakValue(activity.current, activity.lastDate, now);
+    activity.current = activityResult.streak;
+    activity.longest = Math.max(activity.longest || 0, activity.current);
+    activity.lastDate = now;
+
+    user.activityStreaks[type] = activity;
+    user.markModified('activityStreaks');
   }
 
   // ---
@@ -118,7 +117,7 @@ export class UsersService {
     }
 
     // Apply Streak Logic
-    this.updateStreak(user);
+    this.updateStreak(user, actionType);
 
     user.points += pointsToAdd;
     user.dailyPoints += pointsToAdd;
@@ -170,7 +169,7 @@ export class UsersService {
 
     // Check streak
     const oldStreak = user.streak;
-    this.updateStreak(user);
+    this.updateStreak(user, 'login');
     if (user.streak !== oldStreak) {
        updated = true;
     }

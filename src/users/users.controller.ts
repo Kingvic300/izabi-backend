@@ -1,4 +1,5 @@
-import { Controller, Post, Body, UnauthorizedException, Get, Param, Put, UseGuards, Request, Inject, forwardRef, Query, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Post, Body, UnauthorizedException, Get, Param, Put, UseGuards, Request, Inject, forwardRef, Query, BadRequestException, InternalServerErrorException, Req } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthService } from '../auth/auth.service';
 import { UsersService } from './users.service';
 
@@ -10,10 +11,11 @@ export class UsersController {
     private usersService: UsersService,
   ) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get('stats')
-  async getStats(@Query('userId') userId: string) {
+  async getStats(@Req() req: any) {
     try {
-      if (!userId) throw new BadRequestException('userId is required');
+      const userId = req.user.userId;
       const user = await this.usersService.findOne(userId);
       
       return {
@@ -22,6 +24,7 @@ export class UsersController {
           totalPoints: user.points,
           dailyPoints: user.dailyPoints,
           studyStreak: user.streak,
+          activityStreaks: user.activityStreaks || {},
           studyStats: user.studyStats || { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 },
           totalStudyMinutes: user.totalStudyMinutes || 0,
           isVerified: user.isVerified,
@@ -33,10 +36,11 @@ export class UsersController {
     }
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('check-in')
-  async checkIn(@Body('userId') userId: string) {
+  async checkIn(@Req() req: any) {
     try {
-      if (!userId) throw new BadRequestException('userId is required');
+      const userId = req.user.userId;
       const user = await this.usersService.checkIn(userId);
       return {
         success: true,
@@ -84,10 +88,12 @@ export class UsersController {
     }
   }
 
-  @Get('profile/:id')
-  async findOne(@Param('id') id: string) {
+  @UseGuards(JwtAuthGuard)
+  @Get('profile')
+  async getProfile(@Req() req: any) {
     try {
-      const user = await this.usersService.findOne(id);
+      const userId = req.user.userId;
+      const user = await this.usersService.findOne(userId);
       const { password, refreshToken, ...result } = user.toObject();
       return { success: true, data: result };
     } catch (error: any) {
@@ -95,10 +101,12 @@ export class UsersController {
     }
   }
 
-  @Put('profile/:id')
-  async updateProfile(@Param('id') id: string, @Body() body: any) {
+  @UseGuards(JwtAuthGuard)
+  @Put('profile')
+  async updateProfile(@Req() req: any, @Body() body: any) {
     try {
-      const updatedUser = await this.usersService.updateProfile(id, body);
+      const userId = req.user.userId;
+      const updatedUser = await this.usersService.updateProfile(userId, body);
       const { password, refreshToken, ...result } = updatedUser.toObject();
       return { success: true, data: result };
     } catch (error: any) {
@@ -106,10 +114,11 @@ export class UsersController {
     }
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout(@Body('userId') userId: string) {
+  async logout(@Req() req: any) {
     try {
-      if (!userId) throw new BadRequestException('userId is required');
+      const userId = req.user.userId;
       await this.usersService.updateRefreshToken(userId, null);
       return { success: true, message: 'Logged out successfully' };
     } catch (error: any) {
@@ -117,11 +126,13 @@ export class UsersController {
     }
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('submit-groq-key')
-  async submitGroqKey(@Body() body: { userId: string; apiKey: string }) {
+  async submitGroqKey(@Req() req: any, @Body() body: { apiKey: string }) {
     try {
-      const { userId, apiKey } = body;
-      if (!userId || !apiKey) throw new BadRequestException('userId and apiKey are required');
+      const userId = req.user.userId;
+      const { apiKey } = body;
+      if (!apiKey) throw new BadRequestException('apiKey is required');
       await this.usersService.updateGroqKey(userId, apiKey);
       return { success: true, message: 'API key updated successfully' };
     } catch (error: any) {
@@ -129,11 +140,12 @@ export class UsersController {
     }
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('pet/feed')
-  async feedPet(@Body() body: { userId: string }) {
+  async feedPet(@Req() req: any) {
     try {
-      if (!body.userId) throw new BadRequestException('userId is required');
-      const user = await this.usersService.feedPet(body.userId);
+      const userId = req.user.userId;
+      const user = await this.usersService.feedPet(userId);
       return { 
         success: true, 
         message: 'Pet fed successfully', 

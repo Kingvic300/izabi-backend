@@ -11,6 +11,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Chat, ChatDocument } from './entities/chat.entity';
 import { UsersService } from '../users/users.service';
+import { VectorService } from './vector.service';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import { extractTextFromFile } from '../common/utils/text-extractor';
@@ -42,6 +43,7 @@ export class AiService {
     private configService: ConfigService,
     @InjectModel(Chat.name) private chatModel: Model<ChatDocument>,
     private usersService: UsersService,
+    private vectorService: VectorService,
   ) {
     const keys = this.configService.get<string>('GROQ_API_KEYS');
     if (keys) {
@@ -263,30 +265,10 @@ export class AiService {
     }
   }
 
+
+
   async getResponse(message: string, userId?: string): Promise<string> {
-    // 1. Business Logic Limit
-    if (userId) {
-        await this.usersService.checkActivityLimit(userId, 'dailyMessages');
-        // 2. Technical Rate Limit (Count attempt once)
-        this.checkRateLimit(userId);
-    }
-    this.currentUserId = userId || null;
-
-    const responseContent = await this.executeWithRetry(async (key) => {
-      const res = await this.callGroqApi([
-          { role: 'system', content: 'You are Izabi, a world-class AI Learning Assistant. Use Markdown.' },
-          { role: 'user', content: message }
-        ], 
-        key, 
-        false
-      );
-      return res.data.choices[0].message.content;
-    }, userId);
-
-    if (userId) {
-        await this.usersService.incrementActivityCount(userId, 'dailyMessages');
-    }
-    return responseContent;
+    return this.performContextAwareChat(userId || '', message);
   }
 
   async *getResponseStream(message: string, userId?: string) {
@@ -348,6 +330,64 @@ export class AiService {
 
   // --- Document Logic with Token Safety ---
 
+
+  // --- RAG & Knowledge Base Integration ---
+
+  /**
+   * Ingests text into the vector store for future retrieval.
+   * This enables "Chat with Document" and semantic search features.
+   */
+  async ingestText(userId: string, documentId: string, text: string, metadata: any = {}) {
+     try {
+         console.log(`[AiService] Ingesting document ${documentId} for user ${userId}...`);
+         await this.vectorService.addDocument(userId, documentId, text, metadata);
+     } catch (e) {
+         console.error(`[AiService] Ingestion failed for ${documentId}:`, e);
+         // Non-blocking: don't fail the main request if ingestion fails
+     }
+  }
+
+  /**
+   * RAG-enhanced chat: Retrieves relevant context before answering.
+   */
+  async performContextAwareChat(userId: string, message: string, documentId?: string): Promise<string> {
+    if (userId) {
+        await this.usersService.checkActivityLimit(userId, 'dailyMessages');
+        this.checkRateLimit(userId);
+    }
+    this.currentUserId = userId || null;
+
+    // 1. Retrieve relevant chunks
+    console.log(`[AiService] Searching knowledge base for: "${message}"...`);
+    const relevantChunks = await this.vectorService.search(userId, message, documentId, 5);
+    
+    let context = "";
+    if (relevantChunks.length > 0) {
+        context = relevantChunks.map(c => c.content).join('\n\n---\n\n');
+        console.log(`[AiService] Found ${relevantChunks.length} relevant chunks.`);
+    } else {
+        console.log(`[AiService] No relevant context found.`);
+    }
+
+    // 2. Synthesize Answer
+    const prompt = context 
+        ? `Use the following context to answer the user's question. If the answer is not in the context, say so, but try to be helpful based on the context provided.\n\n[CONTEXT]\n${context}\n\n[USER QUESTION]\n${message}`
+        : message;
+
+    return this.executeWithRetry(async (key) => {
+      const res = await this.callGroqApi([
+          { role: 'system', content: 'You are Izabi. Answer efficiently and accurately using the provided context.' },
+          { role: 'user', content: prompt }
+        ], 
+        key, 
+        false
+      );
+      return res.data.choices[0].message.content;
+    }, userId);
+  }
+
+  // --- Document Logic with Token Safety ---
+
   private chunkText(text: string): string[] {
     // ~50k chars is approx 14k tokens, leaving room for system prompts within 35k limit
     const CHUNK_CHAR_SIZE = 50000; 
@@ -373,7 +413,7 @@ export class AiService {
     return chunks;
   }
 
-  async generateFromFiles(message: string, file: Express.Multer.File, userId?: string): Promise<string> {
+  async generateFromFiles(message: string, file: Express.Multer.File, userId?: string, contextId?: string): Promise<string> {
     if (userId) {
       await this.usersService.checkActivityLimit(userId, 'dailyDocs');
       this.checkRateLimit(userId);
@@ -382,7 +422,18 @@ export class AiService {
 
     try {
       const extractedText = await extractTextFromFile(file);
+      
       const response = await this.processExtractedText(message, extractedText, userId);
+
+      // Auto-ingest for future RAG queries if contextId is provided (Post-processing)
+      if (userId && contextId) {
+          this.ingestText(userId, contextId, extractedText, { 
+              source: 'upload', 
+              filename: file.originalname, 
+              mime: file.mimetype 
+          }).catch(err => console.error('[AiService] Background ingestion silenced error:', err));
+      }
+
       if (userId) {
         await this.usersService.incrementActivityCount(userId, 'dailyDocs');
       }
@@ -396,7 +447,7 @@ export class AiService {
 
   // HOW: Fetches file from remote storage (Cloudinary) and processes it
   // WHY: Essential for background processing of large 300MB+ files to avoid Render timeouts
-  async generateFromUrl(message: string, url: string, userId?: string): Promise<string> {
+  async generateFromUrl(message: string, url: string, userId?: string, contextId?: string): Promise<string> {
     if (userId) {
       await this.usersService.checkActivityLimit(userId, 'dailyDocs');
       this.checkRateLimit(userId);
@@ -415,7 +466,17 @@ export class AiService {
       };
       
       const extractedText = await extractTextFromFile(mockFile);
+
       const responseText = await this.processExtractedText(message, extractedText, userId);
+      
+      // Auto-ingest for future RAG queries (Post-processing)
+      if (userId && contextId) {
+          this.ingestText(userId, contextId, extractedText, { 
+              source: 'url', 
+              url: url 
+          }).catch(err => console.error('[AiService] Background ingestion silenced error:', err));
+      }
+
       if (userId) {
         await this.usersService.incrementActivityCount(userId, 'dailyDocs');
       }

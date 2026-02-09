@@ -1,15 +1,17 @@
-import { Controller, Post, Body, Sse, MessageEvent, Query, Get, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Post, Body, Sse, MessageEvent, Query, Get, BadRequestException, InternalServerErrorException, UseGuards, Req } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { Observable, from } from 'rxjs';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('api/ai')
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get('history')
-  async getHistory(@Query('userId') userId: string) {
+  async getHistory(@Req() req: any) {
     try {
-      if (!userId) throw new BadRequestException('userId is required');
+      const userId = req.user.userId;
       const history = await this.aiService.getChatHistory(userId);
       return { success: true, data: history };
     } catch (error: any) {
@@ -17,10 +19,11 @@ export class AiController {
     }
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('clear-history')
-  async clearHistory(@Body('userId') userId: string) {
+  async clearHistory(@Req() req: any) {
     try {
-      if (!userId) throw new BadRequestException('userId is required');
+      const userId = req.user.userId;
       await this.aiService.clearChatHistory(userId);
       return { success: true, message: 'Chat history cleared' };
     } catch (error: any) {
@@ -28,10 +31,11 @@ export class AiController {
     }
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('chat')
-  async chat(@Body('message') message: string, @Body('userId') userId: string) {
+  async chat(@Body('message') message: string, @Req() req: any) {
     try {
-      if (!userId) throw new BadRequestException('userId is required');
+      const userId = req.user.userId;
       if (!message) throw new BadRequestException('message is required');
 
       await this.aiService.saveMessage(userId, 'user', message);
@@ -45,8 +49,10 @@ export class AiController {
     }
   }
 
+  @UseGuards(JwtAuthGuard)
   @Sse('stream')
-  stream(@Query('message') message: string, @Query('userId') userId: string): Observable<MessageEvent> {
+  stream(@Query('message') message: string, @Req() req: any): Observable<MessageEvent> {
+    const userId = req.user.userId;
     const userIdToUse = userId || 'default-user';
     
     // We'll wrap the stream to save messages on completion

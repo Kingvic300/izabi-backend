@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Body, Query, Param, UseInterceptors, UploadedFile, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, UseInterceptors, UploadedFile, BadRequestException, InternalServerErrorException, UseGuards, Req } from '@nestjs/common';
 import { StudyService } from './study.service';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiService } from '../ai/ai.service';
 import { VoiceService } from './voice.service';
 import { UsersService } from '../users/users.service';
@@ -18,10 +19,11 @@ export class StudyController {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get('history')
-  async getHistory(@Query('userId') userId: string) {
+  async getHistory(@Req() req: any) {
     try {
-      if (!userId) throw new BadRequestException('userId is required');
+      const userId = req.user.userId;
       return await this.studyService.findAll(userId);
     } catch (error: any) {
       throw new BadRequestException(error.message || 'Failed to fetch history');
@@ -37,40 +39,45 @@ export class StudyController {
     };
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('summarize')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
-  async summarize(@UploadedFile() file: Express.Multer.File, @Body('userId') userId: string) {
-    return this.studyService.generateMaterial(userId, file, 'summary');
+  async summarize(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
+    return this.studyService.generateMaterial(req.user.userId, file, 'summary');
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('flashcards')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
-  async generateFlashcards(@UploadedFile() file: Express.Multer.File, @Body('userId') userId: string) {
-    return this.studyService.generateMaterial(userId, file, 'flashcards');
+  async generateFlashcards(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
+    return this.studyService.generateMaterial(req.user.userId, file, 'flashcards');
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('generate-questions')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
   async generateQuestions(
     @UploadedFile() file: Express.Multer.File,
-    @Body('userId') userId: string,
+    @Req() req: any,
     @Body('numberOfQuestions') num: string,
   ) {
     const count = parseInt(num) || 5;
-    return this.studyService.generateMaterial(userId, file, 'quiz', { count });
+    return this.studyService.generateMaterial(req.user.userId, file, 'quiz', { count });
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('generate-study-material')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
-  async generateStudyMaterial(@UploadedFile() file: Express.Multer.File, @Body('userId') userId: string) {
-    return this.studyService.generateMaterial(userId, file, 'study-guide');
+  async generateStudyMaterial(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
+    return this.studyService.generateMaterial(req.user.userId, file, 'study-guide');
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('history')
-  async addHistory(@Body() body: any) {
+  async addHistory(@Body() body: any, @Req() req: any) {
     try {
-      const { userId, ...data } = body;
-      if (!userId) throw new BadRequestException('userId is required');
+      const { ...data } = body;
+      const userId = req.user.userId;
       return this.studyService.create(userId, data);
     } catch (error: any) {
       throw new BadRequestException(error.message);
@@ -86,16 +93,17 @@ export class StudyController {
 
   // HOW: Initiates processing for a file uploaded directly to the backend
   // WHY: Removes direct frontend -> Cloudinary dependency, more reliable for restricted environments
+  @UseGuards(JwtAuthGuard)
   @Post('ingest-direct')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
   async ingestDirect(
     @UploadedFile() file: Express.Multer.File,
-    @Body('userId') userId: string,
+    @Req() req: any,
     @Body('type') type: string,
     @Body('options') options?: string,
   ) {
     if (!file) throw new BadRequestException('File is required for direct ingestion.');
-    if (!userId) throw new BadRequestException('userId is required for ingestion mapping.');
+    const userId = req.user.userId;
     
     // FormData bodies are strings, need to parse options if provided
     const parsedOptions = options ? JSON.parse(options) : {};
@@ -108,21 +116,16 @@ export class StudyController {
 
   // HOW: Triggers background processing for a file already hosted on Cloudinary
   // WHY: Allows the UI to be responsive (O(1) request time) even for large document analysis
+  @UseGuards(JwtAuthGuard)
   @Post('ingest-remote')
-  async ingestRemote(@Body() data: IngestRemoteDto) {
-    console.log('[StudyController] ingestRemote received:', data);
-    const { userId, url, fileName, type, options } = data;
+  async ingestRemote(@Body() data: IngestRemoteDto, @Req() req: any) {
+    const userId = req.user.userId;
+    const { url, fileName, type, options } = data;
     
-    if (!userId) {
-      console.error('[StudyController] Missing userId');
-      throw new BadRequestException('userId is required for ingestion mapping.');
-    }
     if (!url) {
-      console.error('[StudyController] Missing url');
       throw new BadRequestException('Document URL (Cloudinary) is required for ingestion mapping.');
     }
     
-    console.log('[StudyController] ingestRemote field check:', { userId, url: url.substring(0, 50) + '...', fileName, type });
     return this.studyService.startRemoteGeneration(userId, { url, fileName, type: type as any, options });
   }
 
@@ -131,14 +134,16 @@ export class StudyController {
     return this.studyService.getJobStatus(id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('generate-voice')
   async generateVoice(
     @Body('text') text: string, 
     @Body('lang') lang: string, 
     @Body('isPidgin') isPidgin: boolean,
-    @Body('userId') userId: string
+    @Req() req: any
   ) {
     try {
+      const userId = req.user.userId;
       if (!text) throw new BadRequestException('Text is required');
       
       let processedText = text;

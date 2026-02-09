@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Body, Query, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, UseGuards, Req, BadRequestException } from '@nestjs/common';
 import { QuizService } from './quiz.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('api/quiz')
 export class QuizController {
@@ -7,22 +8,28 @@ export class QuizController {
 
   // HOW: Retrieve all quiz results for a user
   // WHY: Display history of past attempts
+  @UseGuards(JwtAuthGuard)
   @Get('results')
-  async getResults(@Query('userId') userId: string) {
+  async getResults(@Req() req: any) {
+    const userId = req.user.userId;
     const data = await this.quizService.findAll(userId);
     return { success: true, data };
   }
 
   // Legacy endpoint - kept for backward compatibility
+  @UseGuards(JwtAuthGuard)
   @Post('results')
-  async submitResult(@Body() body: any) {
-    const { userId, ...data } = body;
+  async submitResult(@Body() body: any, @Req() req: any) {
+    const userId = req.user.userId;
+    const { ...data } = body;
     const result = await this.quizService.create(userId, data);
     return { success: true, data: result };
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get('daily-challenge')
-  async getDailyChallenge(@Query('userId') userId: string) {
+  async getDailyChallenge(@Req() req: any) {
+    const userId = req.user.userId;
     const data = await this.quizService.getDailyChallenge(userId);
     return { success: true, data };
   }
@@ -38,23 +45,23 @@ export class QuizController {
 
   // HOW: Generate new Quick Test from user's study materials
   // WHY: Main entry point for Quick Test feature
+  @UseGuards(JwtAuthGuard)
   @Post('quick-test/start')
-  async startQuickTest(@Body() body: { userId: string }) {
-    const { userId } = body;
-    if (!userId) {
-      return { success: false, message: 'userId is required' };
-    }
+  async startQuickTest(@Req() req: any) {
+    const userId = req.user.userId;
     return await this.quizService.generateQuickTest(userId);
   }
 
   // HOW: Submit answers and get graded results
   // WHY: Server-side grading prevents manipulation
+  @UseGuards(JwtAuthGuard)
   @Post('quick-test/submit')
-  async submitQuickTest(@Body() body: { quizId: string; userId: string; answers: Record<string, string> }) {
-    const { quizId, userId, answers } = body;
+  async submitQuickTest(@Req() req: any, @Body() body: { quizId: string; answers: Record<string, string> }) {
+    const userId = req.user.userId;
+    const { quizId, answers } = body;
     
-    if (!quizId || !userId || !answers) {
-      return { success: false, message: 'quizId, userId, and answers are required' };
+    if (!quizId || !answers) {
+      throw new BadRequestException('quizId and answers are required');
     }
 
     return await this.quizService.submitQuickTest(quizId, userId, answers);

@@ -1,8 +1,10 @@
-import { Controller, Get, Post, Body, Query, Param, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, UseInterceptors, UploadedFile, UseGuards } from '@nestjs/common';
 import { ExamsService } from './exam.service';
 import { AiService } from '../ai/ai.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('api/exams')
+@UseGuards(JwtAuthGuard)
 export class ExamsController {
   constructor(
     private readonly examsService: ExamsService,

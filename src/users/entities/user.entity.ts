@@ -65,6 +65,9 @@ export class User {
   @Prop()
   lastStreakDate: Date;
 
+  @Prop({ type: Object, default: {} })
+  activityStreaks: Record<string, { current: number; longest: number; lastDate: Date }>;
+
   @Prop({ default: 0 })
   totalStudyMinutes: number;
 
