@@ -204,7 +204,31 @@ export class StudyService {
     let parsedData: any = responseText;
     if (type === 'flashcards' || type === 'quiz') {
       try {
-        const cleaned = responseText.replace(/```json|```/g, '').trim();
+        let cleaned = responseText.replace(/```json|```/g, '').trim();
+        
+        // Find the absolute start of JSON structure
+        const arrayStart = cleaned.indexOf('[');
+        const objStart = cleaned.indexOf('{');
+        
+        // Determine whether it starts as an array or object
+        // Use earliest existing bracket
+        let start = -1;
+        if (arrayStart > -1 && objStart > -1) {
+            start = Math.min(arrayStart, objStart);
+        } else if (arrayStart > -1) {
+            start = arrayStart;
+        } else {
+            start = objStart;
+        }
+
+        if (start > -1) {
+            const endChar = cleaned[start] === '[' ? ']' : '}';
+            const end = cleaned.lastIndexOf(endChar);
+            if (end > start) {
+                cleaned = cleaned.substring(start, end + 1);
+            }
+        }
+
         parsedData = JSON.parse(cleaned);
       } catch (e) {
         console.error(`[StudyService] JSON parse error for ${type}. Raw:`, responseText);
