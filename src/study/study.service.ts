@@ -1,11 +1,11 @@
 import { Injectable, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { StudyHistory, StudyHistoryDocument } from './entities/study-history.entity';
-import { AiService } from '../ai/ai.service';
-import { CloudinaryService } from '../cloudinary/cloudinary.service';
-import { UsersService } from '../users/users.service';
-import { STUDY_PROMPTS } from './study.prompts';
+import { StudyHistory, StudyHistoryDocument } from './entities/study-history.entity.js';
+import { AiService } from '../ai/ai.service.js';
+import { CloudinaryService } from '../cloudinary/cloudinary.service.js';
+import { UsersService } from '../users/users.service.js';
+import { STUDY_PROMPTS } from './study.prompts.js';
 
 @Injectable()
 export class StudyService {
@@ -64,19 +64,40 @@ export class StudyService {
   ) {
     const config = this.getMaterialConfig(data.type, data.options);
     
-    // Create record in PROCESSING state
+    // 1. Content Fingerprinting
+    const { extractTextFromFile } = await import('../common/utils/text-extractor.js');
+    const extractedText = await extractTextFromFile(file);
+    const docHash = this.aiService.generateHash(extractedText);
+
+    // 2. Cache Interception
+    const existing = await this.studyModel.findOne({ docHash, type: data.type, status: 'COMPLETED' }).exec();
+    if (existing) {
+        const history = await this.create(userId, {
+            fileName: file.originalname,
+            fileUrl: existing.fileUrl,
+            type: data.type,
+            summary: existing.summary,
+            questions: existing.questions,
+            flashcards: existing.flashcards,
+            status: 'COMPLETED',
+            docHash,
+            metadata: { protocol: 'CACHE_HITS_v1', reusedFrom: existing._id }
+        });
+        await this.usersService.addPoints(userId, config.points, config.actionType);
+        return { success: true, jobId: history._id, status: 'COMPLETED' };
+    }
+
     const history = await this.create(userId, {
       fileName: file.originalname,
       type: data.type,
       status: 'PROCESSING',
+      docHash,
       metadata: { 
-        protocol: 'DIRECT_ASYNC_v1',
-        timestamp: new Date().toISOString(),
-        fileSize: file.size
+        protocol: 'DIRECT_ASYNC_v2',
+        timestamp: new Date().toISOString()
       }
     });
 
-    // Start detached background task
     this.processBackgroundDirect(history, file, config).catch(err => {
       console.error(`[StudyService] Direct background failure for ${history._id}:`, err);
     });
@@ -127,11 +148,12 @@ export class StudyService {
       type: data.type,
       status: 'PROCESSING',
       metadata: { 
-        protocol: 'REMOTE_ASYNC_v1',
+        protocol: 'REMOTE_ASYNC_v2',
         timestamp: new Date().toISOString()
       }
     });
 
+    // We don't have the hash yet, so the background task will handle hashing and caching
     this.processBackground(history, data.type, data.url, config).catch(err => {
       console.error(`[StudyService] Async background failure for ${history._id}:`, err);
     });
@@ -148,15 +170,33 @@ export class StudyService {
     data: { text: string; fileName: string; type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
   ) {
     const config = this.getMaterialConfig(data.type, data.options);
+    const docHash = this.aiService.generateHash(data.text);
+
+    // Cache lookup
+    const existing = await this.studyModel.findOne({ docHash, type: data.type, status: 'COMPLETED' }).exec();
+    if (existing) {
+        const history = await this.create(userId, {
+            fileName: data.fileName,
+            type: data.type,
+            summary: existing.summary,
+            questions: existing.questions,
+            flashcards: existing.flashcards,
+            status: 'COMPLETED',
+            docHash,
+            metadata: { protocol: 'TEXT_CACHE_v1' }
+        });
+        await this.usersService.addPoints(userId, config.points, config.actionType);
+        return { success: true, jobId: history._id, status: 'COMPLETED' };
+    }
     
     const history = await this.create(userId, {
       fileName: data.fileName,
       type: data.type,
       status: 'PROCESSING',
+      docHash,
       metadata: { 
-        protocol: 'TEXT_INJECT_v1',
-        timestamp: new Date().toISOString(),
-        charCount: data.text.length
+        protocol: 'TEXT_INJECT_v2',
+        timestamp: new Date().toISOString()
       }
     });
 
@@ -241,10 +281,60 @@ export class StudyService {
   ) {
     try {
       if (!file) throw new BadRequestException('File is required');
-      const history = new this.studyModel({ userId });
       
       const config = this.getMaterialConfig(type, options);
 
+      // 1. EXTRACT HASH FIRST for Caching
+      // This allows us to skip Cloudinary and AI if we've seen this specific content before
+      const fs = await import('fs');
+      const { extractTextFromFile } = await import('../common/utils/text-extractor.js');
+      const extractedText = await extractTextFromFile(file);
+      const docHash = this.aiService.generateHash(extractedText);
+
+      // 2. CHECK CACHE (Global wisdom reuse)
+      const existing = await this.studyModel.findOne({ 
+        docHash, 
+        type, 
+        status: 'COMPLETED' 
+      }).sort({ createdAt: -1 }).exec();
+
+      if (existing) {
+          console.log(`[StudyService] Neural Link established! Reusing existing ${type} for ${file.originalname}`);
+          
+          // Clone the existing history for this new user request to maintain their personal history
+          const cachedHistory = new this.studyModel({
+              userId,
+              fileName: file.originalname,
+              fileUrl: existing.fileUrl,
+              type: existing.type,
+              summary: existing.summary,
+              questions: existing.questions,
+              flashcards: existing.flashcards,
+              status: 'COMPLETED',
+              docHash: existing.docHash,
+              metadata: {
+                  ...existing.metadata,
+                  cachedFrom: existing._id,
+                  reusedAt: new Date().toISOString()
+              }
+          });
+
+          await cachedHistory.save();
+          // Add points for the new interaction
+          await this.usersService.addPoints(userId, config.points, config.actionType);
+
+          return { 
+            success: true, 
+            yield: (cachedHistory as any).summary || cachedHistory.flashcards || cachedHistory.questions,
+            type,
+            telemetry: cachedHistory.metadata,
+            cached: true
+          };
+      }
+
+      // 3. AI GENERATION (Cache Miss)
+      const history = new this.studyModel({ userId, docHash });
+      
       const [responseText, uploadResult] = await Promise.all([
         this.aiService.generateFromFiles(config.prompt, file, userId, history._id.toString()),
         this.cloudinaryService.uploadFile(file).catch(err => {
@@ -258,10 +348,11 @@ export class StudyService {
         fileUrl: uploadResult && (uploadResult as any).secure_url ? (uploadResult as any).secure_url : '',
         type: type === 'quiz' ? 'quiz' : type,
         status: 'COMPLETED',
+        docHash,
         metadata: {
           charCount: responseText.length,
           timestamp: new Date().toISOString(),
-          protocol: 'DEEPLAYER_v2'
+          protocol: 'DEEPLAYER_v3'
         }
       };
 
@@ -272,7 +363,8 @@ export class StudyService {
         success: true, 
         yield: (history as any).summary || history.flashcards || history.questions,
         type,
-        telemetry: history.metadata 
+        telemetry: history.metadata,
+        cached: false
       };
     } catch (error: any) {
       console.error(`[NeuralNode] ${type} generation failure:`, error);

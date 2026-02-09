@@ -35,6 +35,9 @@ export class StudyHistory {
   @Prop({ default: 'COMPLETED' })
   status: string;
 
+  @Prop({ index: true })
+  docHash: string;
+
   @Prop({ type: Object })
   metadata: Record<string, any>;
 }

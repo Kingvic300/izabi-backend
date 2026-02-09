@@ -2,7 +2,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { KnowledgeBase, KnowledgeBaseDocument } from './entities/knowledge-base.entity';
+import { KnowledgeBase, KnowledgeBaseDocument } from './entities/knowledge-base.entity.js';
 
 // Dynamically import since transformers.js is ESM-only sometimes or needs specific handling
 let pipeline: any; // transformers.js pipeline
