@@ -62,16 +62,17 @@ export class CloudinaryService {
 
   getSignedUrl(originalUrl: string): string {
     try {
-      // Extract public_id and format from URL
-      // Example: https://res.cloudinary.com/.../image/upload/v12345/folder/id.pdf
-      const regex = /\/upload\/(?:v\d+\/)?(.+?)\.(\w+)$/;
+      // Extract version, public_id and format from URL
+      // Example: https://res.cloudinary.com/.../image/upload/v1770672147/folder/id.pdf
+      const regex = /\/upload\/(v\d+)\/(.+?)\.(\w+)$/;
       const match = originalUrl.match(regex);
       
       if (match) {
-        const publicId = match[1];
-        const format = match[2];
+        const version = match[1]; // e.g., "v1770672147"
+        const publicId = match[2]; // e.g., "izabi_pdfs/uzjaz2x0o1x1rdzesv7l"
+        const format = match[3]; // e.g., "pdf"
 
-        console.log(`[Cloudinary] Generating signed URL for publicId: ${publicId}, format: ${format}`);
+        console.log(`[Cloudinary] Generating signed URL for publicId: ${publicId}, version: ${version}, format: ${format}`);
 
         // PDFs and other documents use 'raw' resource type in Cloudinary
         const signedUrl = cloudinary.url(publicId, {
@@ -80,6 +81,7 @@ export class CloudinaryService {
           sign_url: true,
           type: 'upload',
           secure: true,
+          version: version, // Preserve the original version
         });
 
         console.log(`[Cloudinary] Original URL: ${originalUrl}`);
