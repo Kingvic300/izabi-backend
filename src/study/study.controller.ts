@@ -114,20 +114,7 @@ export class StudyController {
     });
   }
 
-  // HOW: Triggers background processing for a file already hosted on Cloudinary
-  // WHY: Allows the UI to be responsive (O(1) request time) even for large document analysis
-  @UseGuards(JwtAuthGuard)
-  @Post('ingest-remote')
-  async ingestRemote(@Body() data: IngestRemoteDto, @Req() req: any) {
-    const userId = req.user.userId;
-    const { url, fileName, type, options } = data;
-    
-    if (!url) {
-      throw new BadRequestException('Document URL (Cloudinary) is required for ingestion mapping.');
-    }
-    
-    return this.studyService.startRemoteGeneration(userId, { url, fileName, type: type as any, options });
-  }
+
 
   @UseGuards(JwtAuthGuard)
   @Post('ingest-text')

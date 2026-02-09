@@ -136,35 +136,6 @@ export class StudyService {
     }
   }
 
-  async startRemoteGeneration(
-    userId: string,
-    data: { url: string; fileName: string; type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
-  ) {
-    const config = this.getMaterialConfig(data.type, data.options);
-    
-    const history = await this.create(userId, {
-      fileName: data.fileName,
-      fileUrl: data.url,
-      type: data.type,
-      status: 'PROCESSING',
-      metadata: { 
-        protocol: 'REMOTE_ASYNC_v2',
-        timestamp: new Date().toISOString()
-      }
-    });
-
-    // We don't have the hash yet, so the background task will handle hashing and caching
-    this.processBackground(history, data.type, data.url, config).catch(err => {
-      console.error(`[StudyService] Async background failure for ${history._id}:`, err);
-    });
-
-    return { 
-      success: true, 
-      jobId: history._id,
-      status: 'PROCESSING'
-    };
-  }
-
   async startTextIngestion(
     userId: string,
     data: { text: string; fileName: string; type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
@@ -227,29 +198,7 @@ export class StudyService {
     }
   }
 
-  private async processBackground(
-    history: StudyHistoryDocument, 
-    type: string, 
-    url: string, 
-    config: any
-  ) {
-    try {
-      // If the URL is restricted (401), we try to sign it if it's a Cloudinary URL
-      let validUrl = url;
-      if (url.includes('cloudinary.com')) {
-          validUrl = this.cloudinaryService.getSignedUrl(url);
-          console.log(`[StudyService] Generated signed URL for Cloudinary resource: ${history._id}`);
-      }
 
-      const responseText = await this.aiService.generateFromUrl(config.prompt, validUrl, history.userId, history._id.toString());
-      await this.finalizeMaterial(history, responseText, type, config);
-    } catch (error: any) {
-      console.error(`[StudyService] Background processing failed for ${history._id}:`, error);
-      history.status = 'FAILED';
-      (history.metadata as any).error = error.message;
-      await history.save();
-    }
-  }
 
   private async finalizeMaterial(history: StudyHistoryDocument, responseText: string, type: string, config: any) {
     let parsedData: any = responseText;
