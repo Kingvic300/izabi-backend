@@ -212,16 +212,30 @@ export class UsersService {
       try {
         const user = await this.userModel.findById(userId).exec();
         if (user) {
-          // Calculate rank among non-admin users even for admins
-          const xpRank = await this.userModel.countDocuments({ 
-            role: { $nin: ['ADMIN', 'admin'] },
-            points: { $gt: user.points || 0 } 
-          }) + 1;
-          const streakRank = await this.userModel.countDocuments({ 
-            role: { $nin: ['ADMIN', 'admin'] },
-            streak: { $gt: user.streak || 0 } 
-          }) + 1;
-          userRank = { xp: xpRank.toString(), streak: streakRank.toString() };
+          // If user is an admin, they are not ranked relative to students
+          if (['ADMIN', 'admin'].includes(user.role)) {
+            userRank = { xp: 'Admin', streak: 'Admin' };
+          } else {
+            // Calculate rank among non-admin users with tie-breaker (matches .sort logic)
+            // Sort logic: { points: -1, _id: 1 } -> Higher points first, then smaller _id first
+            const xpRank = await this.userModel.countDocuments({ 
+              role: { $nin: ['ADMIN', 'admin'] },
+              $or: [
+                { points: { $gt: user.points ?? 0 } },
+                { points: user.points ?? 0, _id: { $lt: user._id } }
+              ]
+            }) + 1;
+            
+            const streakRank = await this.userModel.countDocuments({ 
+              role: { $nin: ['ADMIN', 'admin'] },
+              $or: [
+                { streak: { $gt: user.streak ?? 0 } },
+                { streak: user.streak ?? 0, _id: { $lt: user._id } }
+              ]
+            }) + 1;
+            
+            userRank = { xp: xpRank.toString(), streak: streakRank.toString() };
+          }
         }
       } catch (err) {
         console.error('Error calculating user rank:', err);

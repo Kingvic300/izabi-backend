@@ -34,6 +34,9 @@ export class StudyHistory {
 
   @Prop({ default: 'COMPLETED' })
   status: string;
+
+  @Prop({ type: Object })
+  metadata: Record<string, any>;
 }
 
 export const StudyHistorySchema = SchemaFactory.createForClass(StudyHistory);

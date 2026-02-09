@@ -9,10 +9,16 @@ import { tap, catchError } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import { AuditService } from './audit.service';
 import { getSeverityLevel } from './audit.mapping';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { User, UserDocument } from '../users/entities/user.entity';
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
-  constructor(private auditService: AuditService) {}
+  constructor(
+    private auditService: AuditService,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
@@ -46,11 +52,32 @@ export class AuditInterceptor implements NestInterceptor {
 
   private async logAction(context: ExecutionContext, outcome: 'SUCCESS' | 'FAILURE', eventId: string, error?: any) {
     const request = context.switchToHttp().getRequest();
-    const user = request.user; // Assumes Passport/JWT populated user
+    const jwtUser = request.user; // JWT payload: { userId, email, role }
+    
+    // HOW: Fetch full user details from database
+    // WHY: JWT only contains userId, email, role - need firstName/lastName for audit logs
+    let fullUser: UserDocument | null = null;
+    if (jwtUser?.userId) {
+      try {
+        fullUser = await this.userModel.findById(jwtUser.userId)
+          .select('firstName lastName email role plan isVerified createdAt')
+          .lean()
+          .exec() as UserDocument;
+      } catch (e) {
+        console.error('[AuditInterceptor] Failed to fetch user details', e);
+      }
+    }
     
     // Extract ID from params if possible
     const resourceId = request.params?.id || null;
     const severity = getSeverityLevel(request.method, request.url);
+
+    // HOW: Build user's full name from database record
+    // WHY: Ensures "Guest (N/A)" is only shown for truly anonymous requests
+    const userName = fullUser 
+      ? `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.email
+      : 'Guest';
+    const userEmail = fullUser?.email || jwtUser?.email || 'N/A';
 
     // HOW: Construct mandatory canonical event schema
     // WHY: Guarantees every log has standard metadata for auditing/digest grouping
@@ -60,14 +87,14 @@ export class AuditInterceptor implements NestInterceptor {
       action: `${request.method} ${request.url}`,
       timestamp: new Date(),
       user: {
-        userId: user?._id || user?.id || 'ANONYMOUS',
-        fullName: user?._id ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Guest',
-        email: user?.email || 'N/A',
-        username: user?.username || null,
-        role: user?.role || 'GUEST',
-        plan: (user as any)?.plan || 'FREE', // Cast to any in case plan is not in type
-        status: user?.isVerified ? 'VERIFIED' : 'PENDING',
-        signupDate: user?.createdAt || new Date(),
+        userId: jwtUser?.userId || 'ANONYMOUS',
+        fullName: userName,
+        email: userEmail,
+        username: fullUser?.email?.split('@')[0] || null,
+        role: fullUser?.role || jwtUser?.role || 'GUEST',
+        plan: (fullUser as any)?.plan || 'FREE',
+        status: fullUser?.isVerified ? 'VERIFIED' : 'PENDING',
+        signupDate: fullUser?.createdAt || new Date(),
         lastActivity: new Date(),
         ipAddress: request.ip || request.headers['x-forwarded-for'] || '127.0.0.1',
         userAgent: request.headers['user-agent'] || 'Unknown'

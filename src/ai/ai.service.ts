@@ -12,7 +12,15 @@ import { Model } from 'mongoose';
 import { Chat, ChatDocument } from './entities/chat.entity';
 import { UsersService } from '../users/users.service';
 import axios from 'axios';
+import axiosRetry from 'axios-retry';
 import { extractTextFromFile } from '../common/utils/text-extractor';
+
+// Configure global retry for all external API calls (Groq, File Fetching)
+axiosRetry(axios, { 
+  retries: 3, 
+  retryDelay: axiosRetry.exponentialDelay,
+  retryCondition: (error) => axiosRetry.isNetworkOrIdempotentRequestError(error) || error.response?.status === 429
+});
 
 @Injectable()
 export class AiService {
@@ -22,14 +30,13 @@ export class AiService {
 
   // --- Constants for Limits and Safety ---
   private readonly MAX_OUTPUT_TOKENS = 2500;
-  // Hard cap on INPUT tokens to prevent 413 or cost spikes. 
-  // LLaMA contexts are often 8k or 32k, but we stick to a safe 6k limit for stability.
-  private readonly MAX_INPUT_TOKENS = 6000; 
+  // Increased limit for larger context processing
+  private readonly MAX_INPUT_TOKENS = 60000; 
   private readonly RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
   // Internal rate limit trigger (requests per minute per user)
-  private readonly MAX_REQUESTS_PER_WINDOW = 20; 
+  private readonly MAX_REQUESTS_PER_WINDOW = 30; 
   private readonly MAX_HISTORY_MESSAGES = 10;
-  private readonly MAX_DOCUMENT_CHUNKS = 15; // Hard limit on chunks to prevent abuse
+  private readonly MAX_DOCUMENT_CHUNKS = 300; // Increased to 300 for textbooks
 
   constructor(
     private configService: ConfigService,
@@ -342,8 +349,8 @@ export class AiService {
   // --- Document Logic with Token Safety ---
 
   private chunkText(text: string): string[] {
-    // ~12k chars is approx 3-3.5k tokens, leaving room for system prompts within 6k limit
-    const CHUNK_CHAR_SIZE = 12000; 
+    // ~50k chars is approx 14k tokens, leaving room for system prompts within 35k limit
+    const CHUNK_CHAR_SIZE = 50000; 
     const chunks: string[] = [];
     let currentIndex = 0;
     
@@ -375,77 +382,132 @@ export class AiService {
 
     try {
       const extractedText = await extractTextFromFile(file);
-      if (!extractedText) throw new BadRequestException('No text extracted from file');
-
-      // Reject empty or tiny nonsense
-      if (extractedText.trim().length < 10) throw new BadRequestException('Document content too short.');
-
-      let contextToUse = extractedText;
-      const initialTokenEst = this.estimateTokens(extractedText);
-
-      // Check against hard token limit
-      if (initialTokenEst > (this.MAX_INPUT_TOKENS - 100)) { 
-         // Sanity check: if it's absurdly large (e.g. >100k tokens), fail fast
-         if (initialTokenEst > 100000) {
-             throw new PayloadTooLargeException('Document is too large to process (exceeds token budget significantly).');
-         }
-
-         console.log(`[AiService] Large Doc (${initialTokenEst} tokens). Chunking...`);
-         const chunks = this.chunkText(extractedText);
-
-         // Cost/Abuse Protection: Limit chunks
-         if (chunks.length > this.MAX_DOCUMENT_CHUNKS) {
-             throw new PayloadTooLargeException(`Document requires too many processing steps (${chunks.length}/${this.MAX_DOCUMENT_CHUNKS}). Please use a smaller file.`);
-         }
-
-         const summaries: string[] = [];
-
-         for (const chunk of chunks) {
-            const chunkSummary = await this.executeWithRetry(async (key) => {
-               const res = await this.callGroqApi([
-                 { role: 'system', content: 'Summarize this section concisely.' },
-                 { role: 'user', content: chunk }
-               ], key, false);
-               return res.data.choices[0].message.content;
-            }, userId);
-            summaries.push(chunkSummary);
-         }
-         
-         contextToUse = summaries.join('\n\n');
-      }
-
-      // Final Token Check
-      // We estimate formatting + message overhead + new context
-      const finalEstTokens = this.estimateTokens(contextToUse) + this.estimateTokens(message) + 100;
-      
-      if (finalEstTokens > this.MAX_INPUT_TOKENS) {
-          // Truncate safely
-          const safeChars = (this.MAX_INPUT_TOKENS * 3.5) - (message.length) - 500;
-          if (safeChars > 0) {
-              contextToUse = contextToUse.substring(0, safeChars) + '... [Truncated]';
-          }
-      }
-
-      const fullPrompt = `${message}\n\n[CONTEXT]\n${contextToUse}`;
-      
-      const response = await this.executeWithRetry(async (key) => {
-          const res = await this.callGroqApi([
-             { role: 'system', content: 'You are Izabi. Answer the user request based on the context provided.' },
-             { role: 'user', content: fullPrompt }
-          ], key, false);
-          return res.data.choices[0].message.content;
-      }, userId);
-
+      const response = await this.processExtractedText(message, extractedText, userId);
       if (userId) {
         await this.usersService.incrementActivityCount(userId, 'dailyDocs');
       }
-
       return response;
-
     } catch (error: any) {
       console.error('[AiService] generateFromFiles failed:', error.message);
       if (error instanceof BadRequestException || error instanceof PayloadTooLargeException) throw error;
       throw new InternalServerErrorException(error.message || 'Failed to process document');
     }
+  }
+
+  // HOW: Fetches file from remote storage (Cloudinary) and processes it
+  // WHY: Essential for background processing of large 300MB+ files to avoid Render timeouts
+  async generateFromUrl(message: string, url: string, userId?: string): Promise<string> {
+    if (userId) {
+      await this.usersService.checkActivityLimit(userId, 'dailyDocs');
+      this.checkRateLimit(userId);
+    }
+    this.currentUserId = userId || null;
+
+    try {
+      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
+      const buffer = Buffer.from(response.data);
+      const mime = response.headers['content-type'] || 'application/pdf';
+      
+      const mockFile: any = {
+        buffer,
+        mimetype: mime,
+        originalname: url.split('/').pop() || 'document'
+      };
+      
+      const extractedText = await extractTextFromFile(mockFile);
+      const responseText = await this.processExtractedText(message, extractedText, userId);
+      if (userId) {
+        await this.usersService.incrementActivityCount(userId, 'dailyDocs');
+      }
+      return responseText;
+    } catch (error: any) {
+      console.error('[AiService] generateFromUrl failed:', error.message);
+      if (error instanceof BadRequestException || error instanceof PayloadTooLargeException) throw error;
+      throw new InternalServerErrorException(error.message || 'Failed to process document from URL');
+    }
+  }
+
+  private async processExtractedText(message: string, extractedText: string, userId?: string): Promise<string> {
+    if (!extractedText) throw new BadRequestException('No text extracted from file');
+
+    // Allow short topic titles (e.g., "Biology", "AI", "Math")
+    if (extractedText.trim().length < 3) throw new BadRequestException('Content too short. Please provide at least 3 characters.');
+
+    let contextToUse = extractedText;
+    const initialTokenEst = this.estimateTokens(extractedText);
+
+    // Check against hard token limit - if too large, chunk it
+    if (initialTokenEst > (this.MAX_INPUT_TOKENS - 100)) { 
+        console.log(`[AiService] Large Doc (${initialTokenEst} tokens, ${extractedText.length} chars). Chunking...`);
+        
+        const chunks = this.chunkText(extractedText);
+        console.log(`[AiService] Chunked into ${chunks.length} parts`);
+
+        // Cost/Abuse Protection: Limit chunks
+        if (chunks.length > this.MAX_DOCUMENT_CHUNKS) {
+            throw new PayloadTooLargeException(`Document requires too many processing steps (${chunks.length}/${this.MAX_DOCUMENT_CHUNKS}). Please use a smaller file.`);
+        }
+
+        // Parallel chunk summarization for faster processing
+        // Increased batch size to 10 for higher throughput
+        const BATCH_SIZE = 10;
+        const summaries: string[] = [];
+        
+        for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+          const batch = chunks.slice(i, i + BATCH_SIZE);
+          console.log(`[AiService] Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(chunks.length/BATCH_SIZE)}...`);
+          
+          const batchPromises = batch.map(chunk => 
+            this.executeWithRetry(async (key) => {
+              const res = await this.callGroqApi([
+                { role: 'system', content: 'Summarize this section concisely, preserving key facts and concepts.' },
+                { role: 'user', content: chunk }
+              ], key, false);
+              return res.data.choices[0].message.content;
+            }, userId)
+          );
+          
+          const results = await Promise.allSettled(batchPromises);
+          
+          for (const result of results) {
+            if (result.status === 'fulfilled') {
+              summaries.push(result.value);
+            } else {
+              console.warn('[AiService] Chunk summarization failed:', result.reason);
+              // Continue with other chunks instead of failing completely
+            }
+          }
+        }
+        
+        if (summaries.length === 0) {
+          throw new InternalServerErrorException('Failed to process document chunks');
+        }
+        
+        contextToUse = summaries.join('\n\n');
+    }
+
+    // Final Token Check
+    // We estimate formatting + message overhead + new context
+    const finalEstTokens = this.estimateTokens(contextToUse) + this.estimateTokens(message) + 100;
+    
+    if (finalEstTokens > this.MAX_INPUT_TOKENS) {
+        // Truncate safely
+        const safeChars = (this.MAX_INPUT_TOKENS * 3.5) - (message.length) - 500;
+        if (safeChars > 0) {
+            contextToUse = contextToUse.substring(0, safeChars) + '... [Truncated]';
+        }
+    }
+
+    const fullPrompt = `${message}\n\n[CONTEXT]\n${contextToUse}`;
+    
+    const responseText = await this.executeWithRetry(async (key) => {
+        const res = await this.callGroqApi([
+           { role: 'system', content: 'You are Izabi. Answer the user request based on the context provided.' },
+           { role: 'user', content: fullPrompt }
+        ], key, false);
+        return res.data.choices[0].message.content;
+    }, userId);
+
+    return responseText;
   }
 }

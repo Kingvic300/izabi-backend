@@ -26,4 +26,25 @@ export class CloudinaryService {
       streamifier.createReadStream(file.buffer).pipe(uploadStream);
     });
   }
+
+  // HOW: Generates a signature for secure client-side uploads directly to Cloudinary
+  // WHY: Allows the backend to remain memory-safe by never touching the large file stream
+  async generateSignature() {
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    const signature = cloudinary.utils.api_sign_request(
+      {
+        timestamp: timestamp,
+        folder: 'izabi_pdfs',
+      },
+      process.env.CLOUDINARY_API_SECRET || ''
+    );
+
+    return {
+      signature,
+      timestamp,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      folder: 'izabi_pdfs'
+    };
+  }
 }

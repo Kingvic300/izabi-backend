@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Body, Query, UseInterceptors, UploadedFile, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, UseInterceptors, UploadedFile, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { StudyService } from './study.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AiService } from '../ai/ai.service';
 import { VoiceService } from './voice.service';
 import { UsersService } from '../users/users.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { STUDY_PROMPTS } from './study.prompts';
 
 @Controller('api/study')
@@ -13,6 +14,7 @@ export class StudyController {
     private readonly aiService: AiService,
     private readonly voiceService: VoiceService,
     private readonly usersService: UsersService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   @Get('history')
@@ -35,19 +37,19 @@ export class StudyController {
   }
 
   @Post('summarize')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
   async summarize(@UploadedFile() file: Express.Multer.File, @Body('userId') userId: string) {
     return this.studyService.generateMaterial(userId, file, 'summary');
   }
 
   @Post('flashcards')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
   async generateFlashcards(@UploadedFile() file: Express.Multer.File, @Body('userId') userId: string) {
     return this.studyService.generateMaterial(userId, file, 'flashcards');
   }
 
   @Post('generate-questions')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
   async generateQuestions(
     @UploadedFile() file: Express.Multer.File,
     @Body('userId') userId: string,
@@ -58,7 +60,7 @@ export class StudyController {
   }
 
   @Post('generate-study-material')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } })) // 100MB limit
   async generateStudyMaterial(@UploadedFile() file: Express.Multer.File, @Body('userId') userId: string) {
     return this.studyService.generateMaterial(userId, file, 'study-guide');
   }
@@ -68,10 +70,31 @@ export class StudyController {
     try {
       const { userId, ...data } = body;
       if (!userId) throw new BadRequestException('userId is required');
-      return await this.studyService.create(userId, data);
+      return this.studyService.create(userId, data);
     } catch (error: any) {
-      throw new BadRequestException('Failed to add study history');
+      throw new BadRequestException(error.message);
     }
+  }
+
+  // HOW: Provides backend signature for secure client-side uploads to Cloudinary
+  // WHY: Bypasses backend as a "middleman" for large 300MB+ files
+  @Get('upload-signature')
+  async getSignature() {
+    return this.cloudinaryService.generateSignature();
+  }
+
+  // HOW: Triggers background processing for a file already hosted on Cloudinary
+  // WHY: Allows the UI to be responsive (O(1) request time) even for large document analysis
+  @Post('ingest-remote')
+  async ingestRemote(@Body() data: any) {
+    const { userId, url, fileName, type, options } = data;
+    if (!userId || !url) throw new BadRequestException('userId and url are required');
+    return this.studyService.startRemoteGeneration(userId, { url, fileName, type, options });
+  }
+
+  @Get('job-status/:id')
+  async getJobStatus(@Param('id') id: string) {
+    return this.studyService.getJobStatus(id);
   }
 
   @Post('generate-voice')

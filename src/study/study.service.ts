@@ -25,6 +25,114 @@ export class StudyService {
     return history.save();
   }
 
+  private getMaterialConfig(type: string, options?: any) {
+    let prompt = '';
+    let points = 0;
+    let actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards' = 'summaries';
+
+    switch (type) {
+      case 'summary':
+        prompt = STUDY_PROMPTS.SUMMARY;
+        points = 10;
+        actionType = 'summaries';
+        break;
+      case 'flashcards':
+        prompt = STUDY_PROMPTS.FLASHCARDS;
+        points = 15;
+        actionType = 'flashcards';
+        break;
+      case 'quiz':
+        prompt = STUDY_PROMPTS.QUIZ(options?.count || 5);
+        points = 20;
+        actionType = 'quizzes';
+        break;
+      case 'study-guide':
+        prompt = STUDY_PROMPTS.STUDY_GUIDE;
+        points = 25;
+        actionType = 'guides';
+        break;
+    }
+    return { prompt, points, actionType };
+  }
+
+  // HOW: Initiates processing for a file already uploaded to Cloudinary
+  // WHY: Bypasses backend memory limits by offloading the heavy download to a background process
+  async startRemoteGeneration(
+    userId: string,
+    data: { url: string; fileName: string; type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
+  ) {
+    const config = this.getMaterialConfig(data.type, data.options);
+    
+    // Create record in PROCESSING state
+    const history = await this.create(userId, {
+      fileName: data.fileName,
+      fileUrl: data.url,
+      type: data.type,
+      status: 'PROCESSING',
+      metadata: { 
+        protocol: 'REMOTE_ASYNC_v1',
+        timestamp: new Date().toISOString()
+      }
+    });
+
+    // Start detached background task
+    this.processBackground(history, data.type, data.url, config).catch(err => {
+      console.error(`[StudyService] Async background failure for ${history._id}:`, err);
+    });
+
+    return { 
+      success: true, 
+      jobId: history._id,
+      status: 'PROCESSING'
+    };
+  }
+
+  private async processBackground(
+    history: StudyHistoryDocument, 
+    type: string, 
+    url: string, 
+    config: any
+  ) {
+    try {
+      const responseText = await this.aiService.generateFromUrl(config.prompt, url, history.userId);
+      await this.finalizeMaterial(history, responseText, type, config);
+    } catch (error: any) {
+      console.error(`[StudyService] Background processing failed for ${history._id}:`, error);
+      history.status = 'FAILED';
+      (history.metadata as any).error = error.message;
+      await history.save();
+    }
+  }
+
+  private async finalizeMaterial(history: StudyHistoryDocument, responseText: string, type: string, config: any) {
+    let parsedData: any = responseText;
+    if (type === 'flashcards' || type === 'quiz') {
+      try {
+        const cleaned = responseText.replace(/```json|```/g, '').trim();
+        parsedData = JSON.parse(cleaned);
+      } catch (e) {
+        console.error(`[StudyService] JSON parse error for ${type}. Raw:`, responseText);
+        throw new InternalServerErrorException(`AI returned invalid JSON for ${type}`);
+      }
+    }
+
+    if (type === 'flashcards') history.flashcards = parsedData;
+    else if (type === 'quiz') history.questions = parsedData;
+    else (history as any).summary = parsedData;
+
+    history.status = 'COMPLETED';
+    history.metadata = {
+      ...history.metadata,
+      charCount: responseText.length,
+      finalizedAt: new Date().toISOString()
+    };
+
+    await Promise.all([
+      history.save(),
+      this.usersService.addPoints(history.userId, config.points, config.actionType)
+    ]);
+  }
+
   async generateMaterial(
     userId: string,
     file: Express.Multer.File,
@@ -33,58 +141,21 @@ export class StudyService {
   ) {
     try {
       if (!file) throw new BadRequestException('File is required');
-
-      let prompt = '';
-      let points = 0;
-      let actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards' = 'summaries';
-
-      switch (type) {
-        case 'summary':
-          prompt = STUDY_PROMPTS.SUMMARY;
-          points = 10;
-          actionType = 'summaries';
-          break;
-        case 'flashcards':
-          prompt = STUDY_PROMPTS.FLASHCARDS;
-          points = 15;
-          actionType = 'flashcards';
-          break;
-        case 'quiz':
-          prompt = STUDY_PROMPTS.QUIZ(options?.count || 5);
-          points = 20;
-          actionType = 'quizzes';
-          break;
-        case 'study-guide':
-          prompt = STUDY_PROMPTS.STUDY_GUIDE;
-          points = 25;
-          actionType = 'guides';
-          break;
-      }
+      const config = this.getMaterialConfig(type, options);
 
       const [responseText, uploadResult] = await Promise.all([
-        this.aiService.generateFromFiles(prompt, file, userId),
+        this.aiService.generateFromFiles(config.prompt, file, userId),
         this.cloudinaryService.uploadFile(file).catch(err => {
           console.error(`[StudyService] Cloudinary upload failed for ${type}:`, err);
           return { url: null };
         }),
       ]);
 
-      let parsedData: any = responseText;
-      if (type === 'flashcards' || type === 'quiz') {
-        try {
-          const cleaned = responseText.replace(/```json|```/g, '').trim();
-          parsedData = JSON.parse(cleaned);
-        } catch (e) {
-          console.error(`[StudyService] JSON parse error for ${type}. Raw:`, responseText);
-          throw new InternalServerErrorException(`AI returned invalid JSON for ${type}`);
-        }
-      }
-
       const historyData: any = {
         fileName: file.originalname,
         fileUrl: uploadResult.url,
         type: type === 'quiz' ? 'quiz' : type,
-        createdAt: new Date(),
+        status: 'COMPLETED',
         metadata: {
           charCount: responseText.length,
           timestamp: new Date().toISOString(),
@@ -92,26 +163,24 @@ export class StudyService {
         }
       };
 
-      if (type === 'flashcards') historyData.flashcards = parsedData;
-      else if (type === 'quiz') historyData.questions = parsedData;
-      else historyData.summary = parsedData;
-
-      await Promise.all([
-        this.create(userId || 'default-user', historyData),
-        this.usersService.addPoints(userId || 'default-user', points, actionType)
-      ]);
+      const history = new this.studyModel({ ...historyData, userId });
+      await this.finalizeMaterial(history, responseText, type, config);
 
       return { 
         success: true, 
-        yield: parsedData,
+        yield: (history as any).summary || history.flashcards || history.questions,
         type,
-        telemetry: historyData.metadata 
+        telemetry: history.metadata 
       };
     } catch (error: any) {
       console.error(`[NeuralNode] ${type} generation failure:`, error);
-      throw error instanceof BadRequestException || error instanceof InternalServerErrorException 
+      throw error instanceof BadRequestException || error instanceof InternalServerErrorException || (error as any).status === 413
         ? error 
         : new InternalServerErrorException(`Neural synchronization failed for ${type}`);
     }
+  }
+
+  async getJobStatus(id: string) {
+    return this.studyModel.findById(id).exec();
   }
 }

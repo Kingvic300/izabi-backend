@@ -7,6 +7,7 @@ import { AuditScheduler } from './audit.scheduler';
 import { AuditInterceptor } from './audit.interceptor';
 import { CronController } from './audit-cron.controller';
 import { MailModule } from '../mail/mail.module';
+import { User, UserSchema } from '../users/entities/user.entity';
 
 // HOW: AuditModule is Global to ensure the Interceptor can be used application-wide
 // WHY: Centralizes monitoring without requiring manual imports in every feature module
@@ -16,6 +17,7 @@ import { MailModule } from '../mail/mail.module';
     MongooseModule.forFeature([
       { name: AuditLog.name, schema: AuditLogSchema },
       { name: CronLog.name, schema: CronLogSchema },
+      { name: User.name, schema: UserSchema }, // For fetching user details in AuditInterceptor
     ]),
     MailModule,
   ],
