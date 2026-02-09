@@ -67,26 +67,33 @@ export const extractTextFromFile = async (
     );
 
     if (mime === 'application/pdf') {
-      const pdfLib = await import('pdf-parse');
-      let pdfParse = (pdfLib as any).default || (pdfLib as any).PDFParse || pdfLib;
+      // Use PDF.js (Mozilla) for robust Node.js extraction
+      // Try legacy build first for best Node compatibility
+      let pdfjs: any;
+      try {
+        pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+      } catch (e) {
+        pdfjs = require('pdfjs-dist/build/pdf.js');
+      }
 
-      if (typeof pdfParse !== 'function') {
-           if ((pdfLib as any).PDFParse) pdfParse = (pdfLib as any).PDFParse;
+      const doc = await pdfjs.getDocument({
+        data: new Uint8Array(file.buffer),
+        useSystemFonts: true,
+        disableFontFace: true,
+      }).promise;
+
+      const numPages = Math.min(doc.numPages, MAX_PDF_PAGES);
+      let fullText = '';
+      
+      for (let i = 1; i <= numPages; i++) {
+          const page = await doc.getPage(i);
+          const content = await page.getTextContent();
+          const strings = content.items.map((item: any) => item.str);
+          fullText += strings.join(' ') + '\n';
       }
       
-      if (typeof pdfParse !== 'function') {
-           throw new Error(`pdf-parse library load failed. Is not a function. Type: ${typeof pdfParse}`);
-      }
-
-      const data = await pdfParse(file.buffer, {
-        max: MAX_PDF_PAGES,
-      });
-
-      extractedText = data.text;
-
-      console.log(
-        `[DocumentNode] PDF extracted: ${data.numpages} pages, ${extractedText.length} chars`
-      );
+      extractedText = fullText;
+      console.log(`[DocumentNode] PDF extracted: ${numPages} pages, ${extractedText.length} chars`);
     } 
     else if (mime === 'text/plain') {
       extractedText = file.buffer.toString('utf-8');
@@ -169,20 +176,29 @@ export const extractTextPreview = async (
     if (!file?.buffer) return '';
 
     if (file.mimetype === 'application/pdf') {
-      const pdfLib = await import('pdf-parse');
-      let pdfParse = (pdfLib as any).default || (pdfLib as any).PDFParse || pdfLib;
-      
-      if (typeof pdfParse !== 'function') {
-           console.warn('[DocumentNode] pdf-parse fallback. Lib keys:', Object.keys(pdfLib || {}));
-           // Based on logs, PDFParse might be the function
-           if ((pdfLib as any).PDFParse) pdfParse = (pdfLib as any).PDFParse;
+      let pdfjs: any;
+      try {
+        pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+      } catch (e) {
+        pdfjs = require('pdfjs-dist/build/pdf.js');
       }
 
-      if (typeof pdfParse !== 'function') {
-           // One last try: if pdfLib itself is the namespace and has no default, but we saw PDFParse key...
-           throw new Error(`pdf-parse library load failed. Is not a function. Type: ${typeof pdfParse}`);
-      } const data = await pdfParse(file.buffer, { max: 3 });
-      return data.text.substring(0, maxChars);
+      const doc = await pdfjs.getDocument({
+        data: new Uint8Array(file.buffer),
+        useSystemFonts: true,
+        disableFontFace: true,
+      }).promise;
+      
+      let text = '';
+      // Limit to first 3 pages
+      const numPages = Math.min(doc.numPages, 3);
+      
+      for (let i = 1; i <= numPages; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map((item: any) => item.str).join(' ');
+      }
+      return text.substring(0, maxChars);
     }
 
     if (file.mimetype === 'text/plain') {
