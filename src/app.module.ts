@@ -14,8 +14,6 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { ExamsModule } from './exams/exam.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuditModule } from './audit/audit.module';
-import { APP_INTERCEPTOR } from '@nestjs/core';
-import { AuditInterceptor } from './audit/audit.interceptor';
 
 @Module({
   imports: [
@@ -44,10 +42,6 @@ import { AuditInterceptor } from './audit/audit.interceptor';
   controllers: [AppController],
   providers: [
     AppService,
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: AuditInterceptor,
-    },
   ],
 })
 export class AppModule {}

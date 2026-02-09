@@ -1,4 +1,5 @@
 import { Module, Global } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AuditService } from './audit.service';
 import { AuditLog, AuditLogSchema } from './entities/audit-log.entity';
@@ -25,8 +26,11 @@ import { User, UserSchema } from '../users/entities/user.entity';
   providers: [
     AuditService,
     AuditScheduler,
-    AuditInterceptor,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditInterceptor,
+    },
   ],
-  exports: [AuditService, AuditInterceptor],
+  exports: [AuditService],
 })
 export class AuditModule {}
