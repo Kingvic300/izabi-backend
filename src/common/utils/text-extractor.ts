@@ -4,7 +4,14 @@ import { createWorker } from 'tesseract.js';
 
 // Use require for pdf-parse to handle its commonjs export structure in TS
 const pdfLib = require('pdf-parse');
-const pdf = pdfLib.default || pdfLib;
+
+// DEBUGGING: Inspect the library structure
+console.log('[DocumentNode] pdfLib type:', typeof pdfLib);
+if (typeof pdfLib === 'object') {
+    console.log('[DocumentNode] pdfLib keys:', Object.keys(pdfLib));
+}
+
+const pdf = typeof pdfLib === 'function' ? pdfLib : (pdfLib.default || pdfLib);
 
 // Optimal limits for high-speed processing on Render (alleviates OOM and timeouts)
 const MAX_EXTRACTION_CHARS = 700000; // ~200k tokens - fits most textbooks while remaining fast
