@@ -6,6 +6,7 @@ import { VoiceService } from './voice.service';
 import { UsersService } from '../users/users.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { STUDY_PROMPTS } from './study.prompts';
+import { IngestRemoteDto } from './dto/ingest-remote.dto';
 
 @Controller('api/study')
 export class StudyController {
@@ -86,10 +87,21 @@ export class StudyController {
   // HOW: Triggers background processing for a file already hosted on Cloudinary
   // WHY: Allows the UI to be responsive (O(1) request time) even for large document analysis
   @Post('ingest-remote')
-  async ingestRemote(@Body() data: any) {
+  async ingestRemote(@Body() data: IngestRemoteDto) {
+    console.log('[StudyController] ingestRemote received:', data);
     const { userId, url, fileName, type, options } = data;
-    if (!userId || !url) throw new BadRequestException('userId and url are required');
-    return this.studyService.startRemoteGeneration(userId, { url, fileName, type, options });
+    
+    if (!userId) {
+      console.error('[StudyController] Missing userId');
+      throw new BadRequestException('userId is required for ingestion mapping.');
+    }
+    if (!url) {
+      console.error('[StudyController] Missing url');
+      throw new BadRequestException('Document URL (Cloudinary) is required for ingestion mapping.');
+    }
+    
+    console.log('[StudyController] ingestRemote field check:', { userId, url: url.substring(0, 50) + '...', fileName, type });
+    return this.studyService.startRemoteGeneration(userId, { url, fileName, type: type as any, options });
   }
 
   @Get('job-status/:id')
@@ -122,4 +134,3 @@ export class StudyController {
     }
   }
 }
-

@@ -2,14 +2,14 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import * as express from 'express';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
   
-  // Increase payload size limit
-  const bodyParser = require('body-parser');
-  app.use(bodyParser.json({ limit: '500mb' }));
-  app.use(bodyParser.urlencoded({ limit: '500mb', extended: true }));
+  // Increase payload size limit using express directly
+  app.use(express.json({ limit: '500mb' }));
+  app.use(express.urlencoded({ limit: '500mb', extended: true }));
   
   // Enable CORS
   app.enableCors({
