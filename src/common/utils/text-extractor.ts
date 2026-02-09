@@ -3,7 +3,8 @@ import * as mammoth from 'mammoth';
 import { createWorker } from 'tesseract.js';
 
 // Use require for pdf-parse to handle its commonjs export structure in TS
-const pdf = require('pdf-parse');
+const pdfLib = require('pdf-parse');
+const pdf = pdfLib.default || pdfLib;
 
 // Optimal limits for high-speed processing on Render (alleviates OOM and timeouts)
 const MAX_EXTRACTION_CHARS = 700000; // ~200k tokens - fits most textbooks while remaining fast
