@@ -23,7 +23,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@huggingface/inference": "^4.13.11",
-    "@nestjs-modules/mailer": "^1.8.1",
+    "@nestjs-modules/mailer": "^2.0.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
