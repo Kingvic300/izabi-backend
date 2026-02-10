@@ -14,6 +14,7 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { ExamsModule } from './exams/exam.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuditModule } from './audit/audit.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { AuditModule } from './audit/audit.module';
     CloudinaryModule,
     ExamsModule,
     AuditModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

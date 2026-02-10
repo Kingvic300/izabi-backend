@@ -88,6 +88,19 @@ export class User {
     @Prop({ type: Object, default: { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' } })
     pet: any;
 
+    // --- Subscription & Payments ---
+    @Prop({ default: 'free' })
+    subscriptionStatus: 'free' | 'premium';
+
+    @Prop()
+    subscriptionExpiry: Date;
+
+    @Prop()
+    paystackCustomerCode: string;
+
+    @Prop()
+    paystackSubscriptionCode: string;
+
     // --- System & Integration ---
 
     @Prop()

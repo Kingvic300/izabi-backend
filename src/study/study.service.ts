@@ -62,6 +62,12 @@ export class StudyService {
         file: Express.Multer.File,
         data: { type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
     ) {
+        // 0. Usage Limit Check
+        const limit = await this.usersService.checkUsageLimit(userId);
+        if (!limit.allowed) {
+            throw new BadRequestException(limit.reason);
+        }
+
         const config = this.getMaterialConfig(data.type, data.options);
 
         // 1. Content Fingerprinting
@@ -140,6 +146,12 @@ export class StudyService {
         userId: string,
         data: { text: string; fileName: string; type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
     ) {
+        // Usage Limit Check
+        const limit = await this.usersService.checkUsageLimit(userId);
+        if (!limit.allowed) {
+            throw new BadRequestException(limit.reason);
+        }
+
         const config = this.getMaterialConfig(data.type, data.options);
         const docHash = this.aiService.generateHash(data.text);
 
@@ -258,6 +270,12 @@ export class StudyService {
     ) {
         try {
             if (!file) throw new BadRequestException('File is required');
+
+            // Usage Limit Check
+            const limit = await this.usersService.checkUsageLimit(userId);
+            if (!limit.allowed) {
+                throw new BadRequestException(limit.reason);
+            }
 
             const config = this.getMaterialConfig(type, options);
 

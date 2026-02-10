@@ -28,7 +28,9 @@ export class UsersController {
                     streakData: streaks,
                     studyStats: user.studyStats || { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 },
                     pet: user.pet,
-                    isVerified: user.isVerified
+                    isVerified: user.isVerified,
+                    subscriptionStatus: user.subscriptionStatus || 'free',
+                    subscriptionExpiry: user.subscriptionExpiry
                 }
             };
         } catch (error: any) {
@@ -125,5 +127,10 @@ export class UsersController {
     async submitGroqKey(@Req() req: any, @Body() body: { apiKey: string }) {
         await this.usersService.updateGroqKey(req.user.userId, body.apiKey);
         return { success: true, message: 'API key updated' };
+    }
+
+    @Post('logout')
+    async logout() {
+        return { success: true, message: 'Logged out successfully' };
     }
 }

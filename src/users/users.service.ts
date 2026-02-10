@@ -155,6 +155,7 @@ export class UsersService {
 
         user.points += pointsToAdd;
         user.dailyPoints += pointsToAdd;
+        user.dailyDocs += 1; // Tracks successful ingestion
         user.lastStudyDate = now; 
 
         if (!user.pet) user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
@@ -207,6 +208,52 @@ export class UsersService {
         user.streakFreezes = (user.streakFreezes || 0) + 1;
         return user.save();
     }
+
+    async addStreakFreezes(userId: string, count: number): Promise<UserDocument> {
+        const user = await this.userModel.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        user.streakFreezes = (user.streakFreezes || 0) + count;
+        return user.save();
+    }
+
+    async updateSubscription(userId: string, data: { status: 'free' | 'premium', expiry: Date, customerCode?: string }) {
+        const user = await this.userModel.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        user.subscriptionStatus = data.status;
+        user.subscriptionExpiry = data.expiry;
+        if (data.customerCode) user.paystackCustomerCode = data.customerCode;
+        
+        return user.save();
+    }
+
+    async checkUsageLimit(userId: string): Promise<{ allowed: boolean; reason?: string }> {
+        const user = await this.userModel.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        // Premium users have no limits
+        if (user.subscriptionStatus === 'premium') {
+            // Check expiry
+            if (user.subscriptionExpiry && new Date() > user.subscriptionExpiry) {
+                user.subscriptionStatus = 'free';
+                await user.save();
+            } else {
+                return { allowed: true };
+            }
+        }
+
+        const docLimit = 15; // Hardcoded fallback or use config
+        if (user.dailyDocs >= docLimit) {
+            return { 
+                allowed: false, 
+                reason: `Daily limit reached (${docLimit} docs). Upgrade to Premium for unlimited processing!` 
+            };
+        }
+
+        return { allowed: true };
+    }
+
 
     async getStreakNumber(userId: string) {
         const user = await this.userModel.findById(userId).exec();
