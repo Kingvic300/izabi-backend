@@ -73,6 +73,12 @@ export class User {
     @Prop()
     lastStreakDate: Date;
 
+    @Prop({ default: 0 })
+    previousXpRank: number;
+
+    @Prop({ default: 0 })
+    previousStreakRank: number;
+
     @Prop({ type: Object, default: {} })
     activityStreaks: Record<string, { current: number; longest: number; lastDate: Date }>;
 

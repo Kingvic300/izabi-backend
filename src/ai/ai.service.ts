@@ -31,7 +31,7 @@ export class AiService {
   private currentUserId: string | null = null;
 
   // --- Constants for Limits and Safety ---
-  private readonly MAX_OUTPUT_TOKENS = 2500;
+  private readonly MAX_OUTPUT_TOKENS = 4096;
   // Increased limit for larger context processing
   private readonly MAX_INPUT_TOKENS = 8000; 
   private readonly RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
@@ -124,7 +124,9 @@ export class AiService {
       keys.push(...this.groqKeys);
     }
 
-    return [...new Set(keys)];
+    const finalKeys = [...new Set(keys)];
+    console.log(`[AiService] getAvailableKeys: Found ${finalKeys.length} keys.`);
+    return finalKeys;
   }
 
   // --- Execution Core with Retry & Rotation ---
@@ -141,13 +143,13 @@ export class AiService {
 
     let lastError: any;
     
-    // Try keys sequentially
-    for (const key of keys) {
-      try {
-        // NOTE: Rate limit check was removed from loop to avoid penalizing retries.
-        // It is now the responsibility of the caller to check limits once per action.
-        return await operation(key);
-      } catch (error: any) {
+        // Try keys sequentially
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            try {
+                console.log(`[AiService] Attempting AI call with key index ${i}...`);
+                return await operation(key);
+            } catch (error: any) {
         lastError = error;
 
         // --- Fatal Errors: DO NOT RETRY ---
@@ -201,17 +203,21 @@ export class AiService {
         );
     }
 
-    try {
-      return await axios.post('https://api.groq.com/openai/v1/chat/completions', {
-        model, 
-        messages,
-        max_tokens: this.MAX_OUTPUT_TOKENS,
-        stream
-      }, {
-        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-        responseType: stream ? 'stream' : 'json'
-      });
-    } catch (error: any) {
+        try {
+            console.log(`[AiService] Calling Groq API (Model: ${model}, Tokens: ${estimatedTokens})...`);
+            return await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model, 
+                messages,
+                max_tokens: this.MAX_OUTPUT_TOKENS,
+                stream,
+                temperature: 0.2, // Lower temperature for more consistent JSON
+                response_format: { type: "json_object" } // Tell Groq we want JSON
+            }, {
+                headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+                responseType: stream ? 'stream' : 'json',
+                timeout: 60000 // 60s timeout for large generations
+            });
+        } catch (error: any) {
         if (axios.isAxiosError(error) && error.response) {
             const status = error.response.status;
             const msg = JSON.stringify(error.response.data) || error.message;
@@ -375,6 +381,7 @@ export class AiService {
         ? `Use the following context to answer the user's question. If the answer is not in the context, say so, but try to be helpful based on the context provided.\n\n[CONTEXT]\n${context}\n\n[USER QUESTION]\n${message}`
         : message;
 
+    console.log(`[AiService] Prompt prepared. length: ${prompt.length}. Entering executeWithRetry...`);
     return this.executeWithRetry(async (key) => {
       const res = await this.callGroqApi([
           { role: 'system', content: 'You are Izabi. Answer efficiently and accurately using the provided context.' },

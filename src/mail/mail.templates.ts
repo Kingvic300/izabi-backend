@@ -206,3 +206,67 @@ export const getStreakFreezeTemplate = (name: string, freezesLeft: number): stri
 </html>
     `;
 };
+
+export const getLiveAnnouncementTemplate = (name: string): string => {
+    const firstName = name ? name.split(' ')[0] : 'Scholar';
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Izabi is Live!</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; }
+        .container { max-width: 600px; margin: 20px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 24px; overflow: hidden; }
+        .header { padding: 40px; text-align: center; }
+        .logo { font-size: 24px; font-weight: 800; color: #fff; text-decoration: none; }
+        .logo span { color: #3b82f6; }
+        .hero { padding: 0 40px 40px 40px; text-align: center; }
+        .h1 { font-size: 32px; font-weight: 800; margin-bottom: 16px; color: #ffffff; letter-spacing: -1px; }
+        .hero-text { font-size: 16px; line-height: 1.6; color: #94a3b8; margin-bottom: 32px; }
+        .cta-button { display: inline-block; background: #3b82f6; color: #ffffff; text-decoration: none; padding: 18px 36px; border-radius: 14px; font-weight: 700; font-size: 18px; box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4); }
+        
+        .feature-grid { padding: 0 40px 40px 40px; }
+        .feature-card { background: #1e293b; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.05); }
+        .feature-title { color: #3b82f6; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; display: block; }
+        .feature-body { font-size: 15px; color: #94a3b8; line-height: 1.5; }
+
+        .footer { padding: 40px; background-color: #020617; text-align: center; font-size: 13px; color: #475569; border-top: 1px solid #1e293b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">IZABI<span>.</span></div>
+        </div>
+        <div class="hero">
+            <h1 class="h1">We are officially LIVE! 🚀</h1>
+            <p class="hero-text">Hey ${firstName}, the wait is over. Izabi AI is now fully operational and ready to help you crush your academic goals with the power of intelligence.</p>
+            <a href="https://izabi.vercel.app" class="cta-button">Experience Izabi Now</a>
+        </div>
+
+        <div class="feature-grid">
+            <div class="feature-card">
+                <span class="feature-title">New: Exam Center</span>
+                <p class="feature-body">Simulate JAMB, WAEC, and University exams with real-time AI feedback and professional grading.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-title">Unlimited Brain Drops</span>
+                <p class="feature-body">Turn your class notes into daily AI challenges that adapt as you learn.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-title">Multi-Track Streaks</span>
+                <p class="feature-body">Track your growth across quizzes, summaries, and guides. Don't break the chain!</p>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>You're part of the first cohort of elite students using Izabi.</p>
+            <p style="margin-top: 10px;">&copy; ${new Date().getFullYear()} Izabi AI. Master your curriculum.</p>
+        </div>
+    </div>
+</body>
+</html>
+`;
+};

@@ -11,6 +11,8 @@ import { QuizModule } from '../quiz/quiz.module';
 
 import { MailModule } from '../mail/mail.module';
 
+import { UsersScheduler } from './users.scheduler';
+
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
@@ -20,7 +22,7 @@ import { MailModule } from '../mail/mail.module';
     MailModule,
   ],
   controllers: [UsersController, AdminController],
-  providers: [UsersService],
+  providers: [UsersService, UsersScheduler],
   exports: [UsersService],
 })
 export class UsersModule {}

@@ -63,7 +63,7 @@ export class StudyService {
         data: { type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
     ) {
         // 0. Usage Limit Check
-        const limit = await this.usersService.checkUsageLimit(userId);
+        const limit = await this.usersService.checkUsageLimit(userId, 'dailyDocs');
         if (!limit.allowed) {
             throw new BadRequestException(limit.reason);
         }
@@ -154,7 +154,7 @@ export class StudyService {
         data: { text: string; fileName: string; type: 'summary' | 'flashcards' | 'quiz' | 'study-guide'; options?: any }
     ) {
         // Usage Limit Check
-        const limit = await this.usersService.checkUsageLimit(userId);
+        const limit = await this.usersService.checkUsageLimit(userId, 'dailyDocs');
         if (!limit.allowed) {
             throw new BadRequestException(limit.reason);
         }
@@ -281,7 +281,7 @@ export class StudyService {
             if (!file) throw new BadRequestException('File is required');
 
             // Usage Limit Check
-            const limit = await this.usersService.checkUsageLimit(userId);
+            const limit = await this.usersService.checkUsageLimit(userId, 'dailyDocs');
             if (!limit.allowed) {
                 throw new BadRequestException(limit.reason);
             }

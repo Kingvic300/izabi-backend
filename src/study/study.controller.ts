@@ -26,8 +26,10 @@ export class StudyController {
         return await this.studyService.findAll(userId);
     }
 
+    @UseGuards(JwtAuthGuard)
     @Get('leaderboard')
-    async getLeaderboard(@Query('userId') userId?: string) {
+    async getLeaderboard(@Req() req: any, @Query('userId') queryUserId?: string) {
+        const userId = queryUserId || req.user?.userId;
         const leaderboard = await this.usersService.getLeaderboard(userId);
         return {
             success: true,

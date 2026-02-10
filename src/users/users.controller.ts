@@ -30,7 +30,15 @@ export class UsersController {
                     pet: user.pet,
                     isVerified: user.isVerified,
                     subscriptionStatus: user.subscriptionStatus || 'free',
-                    subscriptionExpiry: user.subscriptionExpiry
+                    subscriptionExpiry: user.subscriptionExpiry,
+                    usage: {
+                        dailyDocs: user.dailyDocs || 0,
+                        dailyMessages: user.dailyMessages || 0,
+                        limits: {
+                            dailyDocs: 5,
+                            dailyMessages: 20
+                        }
+                    }
                 }
             };
         } catch (error: any) {

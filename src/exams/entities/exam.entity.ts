@@ -30,6 +30,9 @@ export class Exam {
     answer: string;
     explanation: string;
   }[];
+
+  @Prop({ default: 60 })
+  duration: number; // In minutes
 }
 
 export const ExamSchema = SchemaFactory.createForClass(Exam);

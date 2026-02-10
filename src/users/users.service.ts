@@ -228,13 +228,24 @@ export class UsersService {
         return user.save();
     }
 
-    async checkUsageLimit(userId: string): Promise<{ allowed: boolean; reason?: string }> {
+    async checkUsageLimit(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<{ allowed: boolean; reason?: string }> {
         const user = await this.userModel.findById(userId);
         if (!user) throw new NotFoundException('User not found');
 
+        const now = new Date();
+        const todayUTC = this.getMidnightUTC(now);
+        const lastUTC = user.lastStudyDate ? this.getMidnightUTC(user.lastStudyDate) : null;
+
+        // Reset daily counters if it's a new day
+        if (lastUTC === null || todayUTC > lastUTC) {
+            user.dailyDocs = 0;
+            user.dailyMessages = 0;
+            user.lastStudyDate = now;
+            await user.save();
+        }
+
         // Premium users have no limits
         if (user.subscriptionStatus === 'premium') {
-            // Check expiry
             if (user.subscriptionExpiry && new Date() > user.subscriptionExpiry) {
                 user.subscriptionStatus = 'free';
                 await user.save();
@@ -243,11 +254,17 @@ export class UsersService {
             }
         }
 
-        const docLimit = 15; // Hardcoded fallback or use config
-        if (user.dailyDocs >= docLimit) {
+        // Freemium Limits
+        const LIMITS = {
+            dailyDocs: 5,     // 5 PDF uploads/processing per day
+            dailyMessages: 20 // 20 AI chat messages per day
+        };
+
+        const currentUsage = user[type] || 0;
+        if (currentUsage >= LIMITS[type]) {
             return { 
                 allowed: false, 
-                reason: `Daily limit reached (${docLimit} docs). Upgrade to Premium for unlimited processing!` 
+                reason: `Daily ${type === 'dailyDocs' ? 'upload' : 'AI chat'} limit reached. Upgrade to Premium for unlimited access!` 
             };
         }
 
@@ -289,24 +306,100 @@ export class UsersService {
 
     async getLeaderboard(userId?: string) {
         const filter = { role: { $nin: ['ADMIN', 'admin'] } };
-        const projection = 'firstName lastName email points dailyPoints streak level institution studyStats profilePicturePath';
+        const projection = 'firstName lastName email points dailyPoints streak level institution studyStats profilePicturePath previousXpRank previousStreakRank';
         
         const topStudents = await this.userModel.find(filter).sort({ points: -1, _id: 1 }).limit(100).select(projection).exec();
         const topStreaks = await this.userModel.find(filter).sort({ streak: -1, _id: 1 }).limit(100).select(projection).exec();
 
-        let userRank = { xp: 'Not Ranked', streak: 'Not Ranked' };
-        if (userId && /^[0-9a-fA-F]{24}$/.test(userId)) {
-            const user = await this.userModel.findById(userId).exec();
+        const topStudentsWithChange = topStudents.map((user, index) => {
+            const currentRank = index + 1;
+            const prev = user.previousXpRank || currentRank;
+            return {
+                ...user.toObject(),
+                rank: currentRank,
+                rankChange: prev - currentRank // Positive = Up, Negative = Down
+            };
+        });
+
+        const topStreaksWithChange = topStreaks.map((user, index) => {
+            const currentRank = index + 1;
+            const prev = user.previousStreakRank || currentRank;
+            return {
+                ...user.toObject(),
+                rank: currentRank,
+                rankChange: prev - currentRank
+            };
+        });
+
+        let userRank = { xp: 'Not Ranked', streak: 'Not Ranked', xpChange: 0, streakChange: 0 };
+        const cleanUserId = userId?.trim();
+        
+        if (cleanUserId && /^[0-9a-fA-F]{24}$/.test(cleanUserId)) {
+            const user = await this.userModel.findById(cleanUserId).exec();
             if (user) {
-                if (['ADMIN', 'admin'].includes(user.role)) userRank = { xp: 'Admin', streak: 'Admin' };
-                else {
-                    const xpRank = await this.userModel.countDocuments({ ...filter, $or: [{ points: { $gt: user.points ?? 0 } }, { points: user.points ?? 0, _id: { $lt: user._id } }] }) + 1;
-                    const streakRank = await this.userModel.countDocuments({ ...filter, $or: [{ streak: { $gt: user.streak ?? 0 } }, { streak: user.streak ?? 0, _id: { $lt: user._id } }] }) + 1;
-                    userRank = { xp: xpRank.toString(), streak: streakRank.toString() };
+                if (['ADMIN', 'admin'].includes(user.role)) {
+                    userRank = { xp: 'Admin', streak: 'Admin', xpChange: 0, streakChange: 0 };
+                } else {
+                    const userPoints = user.points ?? 0;
+                    const userStreak = user.streak ?? 0;
+
+                    const xpRank = await this.userModel.countDocuments({ 
+                        ...filter, 
+                        $or: [
+                            { points: { $gt: userPoints } }, 
+                            { points: userPoints, _id: { $lt: user._id } }
+                        ] 
+                    }) + 1;
+
+                    const streakRank = await this.userModel.countDocuments({ 
+                        ...filter, 
+                        $or: [
+                            { streak: { $gt: userStreak } }, 
+                            { streak: userStreak, _id: { $lt: user._id } }
+                        ] 
+                    }) + 1;
+                    
+                    userRank = { 
+                        xp: xpRank.toString(), 
+                        streak: streakRank.toString(),
+                        xpChange: (user.previousXpRank || xpRank) - xpRank,
+                        streakChange: (user.previousStreakRank || streakRank) - streakRank
+                    };
                 }
             }
         }
-        return { topStudents, topStreaks, userRank };
+        return { topStudents: topStudentsWithChange, topStreaks: topStreaksWithChange, userRank };
+    }
+
+    /**
+     * Snapshots the current ranks of all users and saves them to previousRank fields.
+     * WHY: To provide the "rank change" visuals in the Hall of Fame.
+     */
+    async updatePreviousRanks() {
+        const filter = { role: { $nin: ['ADMIN', 'admin'] } };
+        
+        // 1. Snapshot XP Ranks
+        const sortedByXP = await this.userModel.find(filter).sort({ points: -1, _id: 1 }).select('_id').exec();
+        const xpUpdates = sortedByXP.map((user, index) => ({
+            updateOne: {
+                filter: { _id: user._id },
+                update: { previousXpRank: index + 1 }
+            }
+        }));
+
+        // 2. Snapshot Streak Ranks
+        const sortedByStreak = await this.userModel.find(filter).sort({ streak: -1, _id: 1 }).select('_id').exec();
+        const streakUpdates = sortedByStreak.map((user, index) => ({
+            updateOne: {
+                filter: { _id: user._id },
+                update: { previousStreakRank: index + 1 }
+            }
+        }));
+
+        if (xpUpdates.length > 0) await this.userModel.bulkWrite(xpUpdates);
+        if (streakUpdates.length > 0) await this.userModel.bulkWrite(streakUpdates);
+        
+        return { totalProcessed: sortedByXP.length };
     }
 
     // --- Admin & Utils ---
@@ -324,18 +417,10 @@ export class UsersService {
     }
 
     async checkActivityLimit(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<void> {
-        const user = await this.userModel.findById(userId);
-        if (!user) return;
-        const todayUTC = this.getMidnightUTC(new Date());
-        const lastUTC = user.lastStudyDate ? this.getMidnightUTC(user.lastStudyDate) : null;
-
-        if (lastUTC === null || todayUTC > lastUTC) {
-            user.dailyPoints = 0; user.dailyDocs = 0; user.dailyMessages = 0;
-            user.lastStudyDate = new Date(); await user.save();
+        const check = await this.checkUsageLimit(userId, type);
+        if (!check.allowed) {
+            throw new BadRequestException(check.reason);
         }
-
-        const limit = type === 'dailyDocs' ? 20 : 50;
-        if (user[type] >= limit) throw new BadRequestException(`Daily limit of ${limit} reached.`);
     }
 
     async incrementActivityCount(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<void> {

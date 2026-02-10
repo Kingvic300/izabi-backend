@@ -37,11 +37,25 @@ export class QuizService {
     private cleanAiJsonResponse(raw: string): any {
         try {
             let cleaned = raw.replace(/```json|```/g, '').trim();
-            const start = cleaned.indexOf('[') !== -1 ? cleaned.indexOf('[') : cleaned.indexOf('{');
-            if (start === -1) throw new Error('No JSON structure found');
-            const end = cleaned[start] === '[' ? cleaned.lastIndexOf(']') : cleaned.lastIndexOf('}');
-            return JSON.parse(cleaned.substring(start, end + 1));
+            
+            // Try to find the first '{' for an object
+            const startObj = cleaned.indexOf('{');
+            const startArr = cleaned.indexOf('[');
+
+            if (startObj !== -1 && (startArr === -1 || startObj < startArr)) {
+                // Object pattern
+                const end = cleaned.lastIndexOf('}');
+                return JSON.parse(cleaned.substring(startObj, end + 1));
+            } else if (startArr !== -1) {
+                // Array pattern
+                const end = cleaned.lastIndexOf(']');
+                const parsed = JSON.parse(cleaned.substring(startArr, end + 1));
+                return Array.isArray(parsed) ? parsed[0] : parsed;
+            }
+            
+            throw new Error('No JSON structure found');
         } catch (e) {
+            console.error("AI JSON Parse Error:", e, raw);
             throw new InternalServerErrorException('AI returned malformed data. Please try again.');
         }
     }
@@ -227,6 +241,24 @@ export class QuizService {
 
     async create(userId: string, data: any) {
         const res = new this.quizModel({ ...data, userId });
-        return res.save();
+        const saved = await res.save();
+
+        // Award points and update streaks automatically on any quiz submission
+        let pointsToAdd = 0;
+        if (data.score >= 50) {
+            pointsToAdd = data.subject === "Brain Drop" ? 20 : 50;
+            if (data.score === 100 && data.subject !== "Brain Drop") pointsToAdd = 100;
+            
+            await this.usersService.addPoints(userId, pointsToAdd, 'quizzes');
+        } else {
+            // Still update streak even if they didn't pass, as they "studied"
+            try {
+                await this.usersService.addPoints(userId, 0, 'quizzes');
+            } catch (e) {
+                console.error("Streak update failed in quiz create", e);
+            }
+        }
+
+        return saved;
     }
 }

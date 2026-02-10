@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException, BadRequestException, NotFound
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Exam, ExamDocument } from './entities/exam.entity';
+
 import { AiService } from '../ai/ai.service';
 
 @Injectable()
@@ -10,50 +11,71 @@ export class ExamsService {
         @InjectModel(Exam.name) private examModel: Model<ExamDocument>,
         private aiService: AiService,
     ) {}
+    
+    private shuffleArray(array: any[]) {
+        const shuffled = [...array];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
+    }
+
+    private async findExistingExam(config: any) {
+        const { category, subject, universityName, courseTitle } = config;
+        const query: any = { category };
+        
+        if (category === 'UNIVERSITY') {
+            if (universityName) query.institution = universityName;
+            if (courseTitle) query.subject = courseTitle;
+        } else {
+            if (subject) query.subject = subject;
+        }
+
+        const match = await this.examModel.findOne(query).sort({ createdAt: -1 }).exec();
+        if (match) {
+            console.log(`[ExamsService] API SAVER: Reusing existing questions for ${category} ${subject || courseTitle}`);
+            return {
+                ...match.toObject(),
+                questions: this.shuffleArray(match.questions)
+            };
+        }
+        return null;
+    }
 
     /**
      * CBT Simulation Engine
      * Logic: Check for pre-built simulation -> If missing, generate high-quality AI Mock.
      */
-    async getSimulation(userId: string, category: string, subject: string) {
-        // 1. Try to find a curated/official simulation in the DB first
-        const existingSimulation = await this.examModel.findOne({ 
-            category, 
-            subject, 
-            type: 'SIMULATION' 
-        }).exec();
+    async getSimulation(userId: string, config: {
+        category: 'JAMB' | 'WAEC' | 'JUPEB' | 'UNIVERSITY',
+        subject?: string, universityName?: string, department?: string, courseTitle?: string, count?: number
+    }) {
+        // Try to find ANY existing exam (AI or Manual) for this subject to save API costs
+        const existing = await this.findExistingExam(config);
+        if (existing) return existing;
 
-        if (existingSimulation) {
-            return existingSimulation;
-        }
-
-        // 2. Fallback: Generate a high-stakes AI Simulation (CBT Style)
-        // Simulations usually have more questions (40 for JAMB) and a strict timer.
         return this.generatePracticeExam(userId, {
-            category: category as any,
-            subject,
-            count: 40, // Standard CBT length
+            ...config,
+            count: config.count || 25,
         });
     }
 
     /**
      * AI Exam Generator (JAMB, WAEC, JUPEB, UNIVERSITY)
      */
-    async generatePracticeExam(userId: string, config: {
-        category: 'JAMB' | 'WAEC' | 'JUPEB' | 'UNIVERSITY',
-        subject?: string,
-        universityName?: string,
-        department?: string,
-        courseTitle?: string,
-        count?: number
-    }) {
+    async generatePracticeExam(userId: string, config: any) {
+        // API SAVER: Check if we already have questions for this. No need to generate twice.
+        const existing = await this.findExistingExam(config);
+        if (existing) return existing;
+
         const questionCount = config.count || 15;
         let prompt = '';
 
         switch (config.category) {
             case 'JAMB':
                 prompt = `Act as a JAMB examiner. Generate ${questionCount} standard JAMB CBT questions for ${config.subject}. 
-                Ensure questions cover the official JAMB syllabus. Provide 4 options, the correct answer, and an academic explanation.`;
+                Ensure questions cover the official JAMB syllabus. Provide 4 options, the correct answer, and a CONCISE academic explanation.`;
                 break;
             case 'WAEC':
                 prompt = `Act as a WAEC examiner. Generate ${questionCount} WAEC objective-style questions for ${config.subject}. 
@@ -71,23 +93,37 @@ export class ExamsService {
         }
 
         const jsonInstruction = `
-        Return ONLY a JSON array: [{"question": "string", "options": ["A) ", "B) ", "C) ", "D) "], "answer": "string", "explanation": "string"}]`;
+        Return ONLY a JSON object: {"questions": [{"question": "string", "options": ["A) ", "B) ", "C) ", "D) "], "answer": "string", "explanation": "string"}]}`;
 
         try {
+            console.log(`[ExamsService] Requesting AI exam generation for ${prompt.substring(0, 50)}...`);
             const aiRawResponse = await this.aiService.getResponse(`${prompt}\n${jsonInstruction}`, userId);
-            const jsonStartIndex = aiRawResponse.indexOf('[');
-            const jsonEndIndex = aiRawResponse.lastIndexOf(']') + 1;
             
-            if (jsonStartIndex === -1) throw new Error('AI failed to return valid JSON');
-            
-            const questions = JSON.parse(aiRawResponse.substring(jsonStartIndex, jsonEndIndex));
+            let questions = [];
+            try {
+                const parsed = JSON.parse(aiRawResponse);
+                questions = parsed.questions || parsed;
+            } catch (e) {
+                // Fallback to extraction if parsing raw fails (e.g. if AI adds filler text)
+                const jsonStartIndex = aiRawResponse.indexOf('{');
+                const jsonEndIndex = aiRawResponse.lastIndexOf('}') + 1;
+                if (jsonStartIndex !== -1) {
+                    const parsed = JSON.parse(aiRawResponse.substring(jsonStartIndex, jsonEndIndex));
+                    questions = parsed.questions || parsed;
+                }
+            }
+
+            if (!Array.isArray(questions) || questions.length === 0) {
+                throw new Error('AI failed to return a valid question array');
+            }
 
             const exam = new this.examModel({
                 userId,
+                title: `${config.category} ${config.subject || config.courseTitle || 'Practice'} ${config.count && config.count >= 25 ? 'Simulation' : 'Practice'}`,
                 category: config.category,
                 subject: config.subject || config.courseTitle,
                 institution: config.universityName || 'National Body',
-                type: config.count && config.count >= 40 ? 'SIMULATION' : 'AI_GENERATED',
+                type: config.count && config.count >= 25 ? 'SIMULATION' : 'AI_GENERATED',
                 questions,
                 duration: config.category === 'JAMB' ? 120 : 60, // Minutes
             });

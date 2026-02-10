@@ -14,13 +14,28 @@ export class ExamsController {
     @Get('simulation')
     async getSimulation(
         @Req() req: any,
-        @Query('category') category: string,
-        @Query('subject') subject: string
+        @Query('category') category: 'JAMB' | 'WAEC' | 'JUPEB' | 'UNIVERSITY',
+        @Query('subject') subject?: string,
+        @Query('universityName') universityName?: string,
+        @Query('department') department?: string,
+        @Query('courseTitle') courseTitle?: string,
+        @Query('count') count?: number,
     ) {
-        if (!category || !subject) {
-            throw new BadRequestException('Category and Subject are required for a simulation');
+        if (!category) {
+            throw new BadRequestException('Category is required for a simulation');
         }
-        return this.examsService.getSimulation(req.user.userId, category, subject);
+        
+        const userId = req.user?.userId;
+        const config = {
+            category,
+            subject,
+            universityName,
+            department,
+            courseTitle,
+            count: count ? Number(count) : 25
+        };
+
+        return this.examsService.getSimulation(userId, config);
     }
 
     /**

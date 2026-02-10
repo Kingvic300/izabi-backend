@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as SibApiV3Sdk from 'sib-api-v3-sdk';
-import { getOtpEmailTemplate } from './mail.templates';
+import { getOtpEmailTemplate, getLiveAnnouncementTemplate } from './mail.templates';
 
 @Injectable()
 export class MailService {
@@ -64,6 +64,21 @@ export class MailService {
       console.log(`[MailService] Freeze notification sent to ${email}`);
     } catch (error) {
       console.error(`[MailService] Freeze notification failed:`, error.message);
+    }
+  }
+
+  async sendLiveAnnouncement(email: string, name: string) {
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+    sendSmtpEmail.subject = '🚀 Izabi is officially LIVE!';
+    sendSmtpEmail.htmlContent = getLiveAnnouncementTemplate(name);
+    sendSmtpEmail.sender = { name: 'Izabi AI', email: this.configService.get<string>('MAIL_FROM') };
+    sendSmtpEmail.to = [{ email }];
+
+    try {
+      await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+      console.log(`[MailService] Live announcement sent to ${email}`);
+    } catch (error) {
+      console.error(`[MailService] Live announcement failed for ${email}:`, error.message);
     }
   }
 }

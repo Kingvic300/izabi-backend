@@ -1,11 +1,15 @@
 import { Controller, Post, Body, Sse, MessageEvent, Query, Get, BadRequestException, InternalServerErrorException, UseGuards, Req } from '@nestjs/common';
 import { AiService } from './ai.service';
+import { UsersService } from '../users/users.service';
 import { Observable, from } from 'rxjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('api/ai')
 export class AiController {
-  constructor(private readonly aiService: AiService) {}
+  constructor(
+    private readonly aiService: AiService,
+    private readonly usersService: UsersService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Get('history')
@@ -38,9 +42,11 @@ export class AiController {
       const userId = req.user.userId;
       if (!message) throw new BadRequestException('message is required');
 
+      await this.usersService.checkActivityLimit(userId, 'dailyMessages');
       await this.aiService.saveMessage(userId, 'user', message);
       const response = await this.aiService.getResponse(message, userId);
       await this.aiService.saveMessage(userId, 'assistant', response);
+      await this.usersService.incrementActivityCount(userId, 'dailyMessages');
       
       return { success: true, response };
     } catch (error: any) {
