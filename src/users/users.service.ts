@@ -4,373 +4,312 @@ import { Model } from 'mongoose';
 import { User, UserDocument } from './entities/user.entity';
 import { CreateUserDto, UpdateProfileDto } from './dto/user.dto';
 import * as bcrypt from 'bcrypt';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class UsersService {
-  constructor(
-    @InjectModel(User.name) private userModel: Model<UserDocument>,
-  ) {}
+    constructor(
+        @InjectModel(User.name) private userModel: Model<UserDocument>,
+        private mailService: MailService,
+    ) {}
 
-  async create(createUserDto: CreateUserDto): Promise<UserDocument> {
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
-    const user = new this.userModel({
-      ...createUserDto,
-      password: hashedPassword,
-    });
-    return user.save();
-  }
+    // --- Core User Management ---
 
-  async findByEmail(email: string): Promise<UserDocument | null> {
-    return this.userModel.findOne({ email }).select('+password').exec();
-  }
-
-  async findOne(id: string): Promise<UserDocument> {
-    const user = await this.userModel.findById(id).exec();
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-    return user;
-  }
-
-  async updateProfile(id: string, updateProfileDto: UpdateProfileDto): Promise<UserDocument> {
-    const user = await this.userModel.findByIdAndUpdate(id, updateProfileDto, { new: true }).exec();
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-    return user;
-  }
-
-  async updateOtp(email: string, otp: string, expires: Date): Promise<void> {
-    await this.userModel.updateOne({ email }, { otp, otpExpires: expires }).exec();
-  }
-
-  async verifyUser(email: string): Promise<void> {
-    await this.userModel.updateOne({ email }, { isVerified: true, otp: null, otpExpires: null }).exec();
-  }
-
-  async updateRefreshToken(userId: string, refreshToken: string | null): Promise<void> {
-    await this.userModel.findByIdAndUpdate(userId, { refreshToken }).exec();
-  }
-
-  async updatePassword(userId: string, hashedPassword: string): Promise<void> {
-    await this.userModel.findByIdAndUpdate(userId, { password: hashedPassword }).exec();
-  }
-
-
-  // --- Professional Streak Engine ---
-
-  /**
-   * Calculates the new streak value based on calendar day continuity.
-   * @returns { streak: number, isNewDay: boolean, isReset: boolean }
-   */
-  private calculateStreakStatus(
-    currentStreak: number,
-    lastActivityDate: Date | null,
-    now: Date
-  ) {
-    if (!lastActivityDate) {
-      return { streak: 1, isNewDay: true, isReset: false };
+    async create(createUserDto: CreateUserDto): Promise<UserDocument> {
+        const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+        const user = new this.userModel({
+            ...createUserDto,
+            password: hashedPassword,
+            level: 1,
+            streakFreezes: 0,
+        });
+        return user.save();
     }
 
-    // Normalize dates to start of day (00:00:00) in UTC for strict calendar comparison
-    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const last = new Date(Date.UTC(lastActivityDate.getUTCFullYear(), lastActivityDate.getUTCMonth(), lastActivityDate.getUTCDate()));
-
-    const msPerDay = 24 * 60 * 60 * 1000;
-    const diffMs = today.getTime() - last.getTime();
-    const diffDays = Math.floor(diffMs / msPerDay);
-
-    if (diffDays === 0) {
-      // Still the same calendar day, no streak increase
-      return { streak: currentStreak || 1, isNewDay: false, isReset: false };
-    } 
-    
-    if (diffDays === 1) {
-      // Consecutive day!
-      return { streak: (currentStreak || 0) + 1, isNewDay: true, isReset: false };
+    async findByEmail(email: string): Promise<UserDocument | null> {
+        return this.userModel.findOne({ email }).select('+password').exec();
     }
 
-    // Missed at least one full calendar day
-    return { streak: 1, isNewDay: true, isReset: true };
-  }
-
-  /**
-   * Updates both the global study streak and activity-specific tracks.
-   * Ensures streaks are strictly earned through meaningful platform engagement.
-   * NOTE: Global Academic Streak is ONLY boosted by actual study tasks, not just logins.
-   */
-  private updateStreak(user: UserDocument, activityType: string = 'study') {
-    const now = new Date();
-
-    // 1. Process Global Academic Streak
-    // Only study tasks (summaries, quizzes, flashcards, etc.) count towards "Academic Brilliance"
-    if (activityType !== 'login') {
-      const globalStatus = this.calculateStreakStatus(user.streak, user.lastStreakDate, now);
-      
-      if (globalStatus.isNewDay) {
-        user.streak = globalStatus.streak;
-        user.longestStreak = Math.max(user.longestStreak || 0, user.streak);
-        user.lastStreakDate = now;
-      }
+    async findOne(id: string): Promise<UserDocument> {
+        const user = await this.userModel.findById(id).exec();
+        if (!user) throw new NotFoundException(`User with ID ${id} not found`);
+        return user;
     }
 
-    // 2. Process Granular Activity Tracks (Login, Quizzes, etc.)
-    if (!user.activityStreaks) user.activityStreaks = {};
-    
-    const activity = user.activityStreaks[activityType] || { current: 0, longest: 0, lastDate: null };
-    const activityStatus = this.calculateStreakStatus(activity.current, activity.lastDate, now);
-
-    if (activityStatus.isNewDay) {
-      activity.current = activityStatus.streak;
-      activity.longest = Math.max(activity.longest || 0, activity.current);
-      activity.lastDate = now;
-      
-      user.activityStreaks[activityType] = activity;
-      user.markModified('activityStreaks');
-    }
-  }
-
-  // ---
-
-  async addPoints(userId: string, pointsToAdd: number, actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards'): Promise<UserDocument> {
-    const user = await this.userModel.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const lastStudyDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
-
-    // Daily Limits Reset
-    if (!lastStudyDate || today.getTime() > lastStudyDate.getTime()) {
-      user.dailyPoints = 0;
-      user.dailyDocs = 0;
-      user.dailyMessages = 0;
+    async updateProfile(id: string, updateProfileDto: UpdateProfileDto): Promise<UserDocument> {
+        const user = await this.userModel.findByIdAndUpdate(id, updateProfileDto, { new: true }).exec();
+        if (!user) throw new NotFoundException(`User with ID ${id} not found`);
+        return user;
     }
 
-    // Apply Streak Logic
-    this.updateStreak(user, actionType);
+    // --- Auth Helpers ---
 
-    user.points += pointsToAdd;
-    user.dailyPoints += pointsToAdd;
-    user.lastStudyDate = now; // Tracks general activity time
-
-    // Update Pet State
-    if (!user.pet) {
-      user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
-    }
-    // Level is derived from streak
-    user.pet.level = Math.floor(user.streak / 5) + 1; 
-    
-    // Mood logic: Happy if streak > 1, Normal if streak = 1
-    user.pet.mood = user.streak > 1 ? 'happy' : 'neutral';
-    
-    user.markModified('pet');
-    
-    if (!user.studyStats) {
-      user.studyStats = { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 };
-    }
-    user.studyStats[actionType] = (user.studyStats[actionType] || 0) + 1;
-
-    // Increment study time
-    const timeMap = { summaries: 5, quizzes: 15, guides: 10, flashcards: 5 };
-    user.totalStudyMinutes = (user.totalStudyMinutes || 0) + (timeMap[actionType] || 5);
-    
-    user.markModified('studyStats');
-    
-    return user.save();
-  }
-
-  async checkIn(userId: string): Promise<UserDocument> {
-    const user = await this.userModel.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const lastStudyDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
-
-    let updated = false;
-
-    // Reset daily counters if new day
-    if (!lastStudyDate || today.getTime() > lastStudyDate.getTime()) {
-      user.dailyPoints = 0;
-      user.dailyDocs = 0;
-      user.dailyMessages = 0;
-      updated = true;
+    async updateOtp(email: string, otp: string, expires: Date): Promise<void> {
+        await this.userModel.updateOne({ email }, { otp, otpExpires: expires }).exec();
     }
 
-    // Check streak
-    const oldStreak = user.streak;
-    this.updateStreak(user, 'login');
-    if (user.streak !== oldStreak) {
-       updated = true;
-    }
-    
-    // Always update lastStudyDate on check-in
-    user.lastStudyDate = now;
-    
-    if (updated) {
-      // Pet update
-      if (!user.pet) {
-        user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
-      }
-      user.pet.level = Math.floor(user.streak / 5) + 1;
-      user.pet.mood = user.streak > 1 ? 'happy' : 'neutral';
-      user.markModified('pet');
-      return user.save();
+    async verifyUser(email: string): Promise<void> {
+        await this.userModel.updateOne({ email }, { isVerified: true, otp: null, otpExpires: null }).exec();
     }
 
-    return user;
-  }
+    async updateRefreshToken(userId: string, refreshToken: string | null): Promise<void> {
+        await this.userModel.findByIdAndUpdate(userId, { refreshToken }).exec();
+    }
 
-  async getLeaderboard(userId?: string) {
-    const topStudents = await this.userModel.find({ role: { $nin: ['ADMIN', 'admin'] } })
-      .sort({ points: -1, _id: 1 })
-      .limit(100)
-      .select('firstName lastName email points dailyPoints streak institution studyStats profilePicturePath')
-      .exec();
+    async updatePassword(userId: string, hashedPassword: string): Promise<void> {
+        await this.userModel.findByIdAndUpdate(userId, { password: hashedPassword }).exec();
+    }
 
-    const topStreaks = await this.userModel.find({ role: { $nin: ['ADMIN', 'admin'] } })
-      .sort({ streak: -1, _id: 1 })
-      .limit(100)
-      .select('firstName lastName email points dailyPoints streak institution studyStats profilePicturePath')
-      .exec();
+    // --- Professional Streak Engine (UTC Midnight) ---
 
-    let userRank = { xp: 'Not Ranked', streak: 'Not Ranked' };
-    const isValidId = userId && /^[0-9a-fA-F]{24}$/.test(userId);
+    private getMidnightUTC(date: Date): number {
+        return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    }
 
-    if (isValidId) {
-      try {
-        const user = await this.userModel.findById(userId).exec();
-        if (user) {
-          // If user is an admin, they are not ranked relative to students
-          if (['ADMIN', 'admin'].includes(user.role)) {
-            userRank = { xp: 'Admin', streak: 'Admin' };
-          } else {
-            // Calculate rank among non-admin users with tie-breaker (matches .sort logic)
-            // Sort logic: { points: -1, _id: 1 } -> Higher points first, then smaller _id first
-            const xpRank = await this.userModel.countDocuments({ 
-              role: { $nin: ['ADMIN', 'admin'] },
-              $or: [
-                { points: { $gt: user.points ?? 0 } },
-                { points: user.points ?? 0, _id: { $lt: user._id } }
-              ]
-            }) + 1;
-            
-            const streakRank = await this.userModel.countDocuments({ 
-              role: { $nin: ['ADMIN', 'admin'] },
-              $or: [
-                { streak: { $gt: user.streak ?? 0 } },
-                { streak: user.streak ?? 0, _id: { $lt: user._id } }
-              ]
-            }) + 1;
-            
-            userRank = { xp: xpRank.toString(), streak: streakRank.toString() };
-          }
+    private calculateStreakStatus(user: UserDocument, lastActivityDate: Date | null, now: Date) {
+        if (!lastActivityDate) {
+            return { streak: 1, isNewDay: true, freezeUsed: false };
         }
-      } catch (err) {
-        console.error('Error calculating user rank:', err);
-      }
+
+        const todayUTC = this.getMidnightUTC(now);
+        const lastUTC = this.getMidnightUTC(lastActivityDate);
+        const msPerDay = 24 * 60 * 60 * 1000;
+        const diffDays = Math.floor((todayUTC - lastUTC) / msPerDay);
+
+        if (diffDays === 0) {
+            return { streak: user.streak || 1, isNewDay: false, freezeUsed: false };
+        } 
+        
+        if (diffDays === 1) {
+            return { streak: (user.streak || 0) + 1, isNewDay: true, freezeUsed: false };
+        }
+
+        // STREAK FREEZE PROTECTION
+        if (diffDays === 2 && user.streakFreezes > 0) {
+            user.streakFreezes -= 1;
+            user.markModified('streakFreezes');
+            
+            // Notify user about the freeze usage
+            this.mailService.sendStreakFreezeNotification(
+                user.email, 
+                user.firstName || 'Scholar', 
+                user.streakFreezes
+            ).catch(err => console.error("Failed to notifiy freeze usage", err));
+
+            return { streak: (user.streak || 0) + 1, isNewDay: true, freezeUsed: true };
+        }
+
+        return { streak: 1, isNewDay: true, freezeUsed: false };
     }
 
-    return { topStudents, topStreaks, userRank };
-  }
+    private updateStreak(user: UserDocument, activityType: string) {
+        const now = new Date();
 
-  async updateGroqKey(userId: string, apiKey: string): Promise<void> {
-    const user = await this.userModel.findByIdAndUpdate(userId, { groqApiKey: apiKey }).exec();
-    if (!user) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
-    }
-  }
+        // 1. Process Global Streak
+        const status = this.calculateStreakStatus(user, user.lastStreakDate, now);
+        
+        if (status.isNewDay) {
+            const oldStreak = user.streak || 0;
+            user.streak = status.streak;
+            user.longestStreak = Math.max(user.longestStreak || 0, user.streak);
+            user.lastStreakDate = now;
 
-  async checkActivityLimit(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<void> {
-    const user = await this.userModel.findById(userId);
-    if (!user) return; // Should not happen with auth
+            // Milestone: Level up every 7 days + 500 XP reward
+            if (user.streak > 0 && user.streak % 7 === 0 && user.streak !== oldStreak) {
+                user.level = (user.level || 1) + 1;
+                user.points += 500;
+            }
+        }
 
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const lastDate = user.lastStudyDate ? new Date(user.lastStudyDate.getFullYear(), user.lastStudyDate.getMonth(), user.lastStudyDate.getDate()) : null;
+        // 2. Process Activity Streaks
+        if (!user.activityStreaks) user.activityStreaks = {};
+        const activity = user.activityStreaks[activityType] || { current: 0, longest: 0, lastDate: null };
+        const actStatus = this.calculateStreakStatus(user, activity.lastDate, now);
 
-    // Reset if it's a new day
-    if (!lastDate || today.getTime() > lastDate.getTime()) {
-      user.dailyPoints = 0;
-      user.dailyDocs = 0;
-      user.dailyMessages = 0;
-      user.lastStudyDate = now;
-      await user.save();
-    }
-
-    const limit = type === 'dailyDocs' 
-      ? parseInt(process.env.DAILY_DOC_LIMIT || '20') 
-      : parseInt(process.env.DAILY_MESSAGE_LIMIT || '50');
-
-    if (user[type] >= limit) {
-      throw new BadRequestException(`You have reached your daily limit of ${limit} ${type === 'dailyDocs' ? 'documents' : 'messages'}. Upgrade or wait until tomorrow!`);
-    }
-  }
-
-  async incrementActivityCount(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<void> {
-    const user = await this.userModel.findById(userId);
-    if (!user) return;
-    
-    user[type] = (user[type] || 0) + 1;
-    user.lastStudyDate = new Date();
-    await user.save();
-  }
-
-  // Admin methods
-  async findAll(): Promise<UserDocument[]> {
-    return this.userModel.find().select('-password -refreshToken').exec();
-  }
-
-  async getTotalNotes(): Promise<number> {
-    // This would need to be implemented based on your notes model
-    // For now, returning a placeholder
-    return 0;
-  }
-
-  async getContributedKeysCount(): Promise<number> {
-    const count = await this.userModel.countDocuments({ groqApiKey: { $exists: true, $ne: null } }).exec();
-    return count;
-  }
-
-  async getUsersWithKeys(): Promise<UserDocument[]> {
-    return this.userModel.find({ groqApiKey: { $exists: true, $ne: null } })
-      .select('groqApiKey createdAt')
-      .exec();
-  }
-
-  async delete(userId: string): Promise<void> {
-    const result = await this.userModel.findByIdAndDelete(userId).exec();
-    if (!result) {
-      throw new NotFoundException(`User with ID ${userId} not found`);
-    }
-  }
-
-  async feedPet(userId: string): Promise<UserDocument> {
-    const user = await this.userModel.findById(userId);
-    if (!user) throw new NotFoundException('User not found');
-
-    if (user.points < 50) {
-      throw new BadRequestException('Not enough points to feed pet (50 required)');
+        if (actStatus.isNewDay) {
+            activity.current = actStatus.streak;
+            activity.longest = Math.max(activity.longest || 0, activity.current);
+            activity.lastDate = now;
+            user.activityStreaks[activityType] = activity;
+            user.markModified('activityStreaks');
+        }
     }
 
-    user.points -= 50;
-    
-    if (!user.pet) {
-      user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
+    // --- Core Gamification Methods ---
+
+    async addPoints(userId: string, pointsToAdd: number, actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards'): Promise<UserDocument> {
+        const user = await this.userModel.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        const now = new Date();
+        const todayUTC = this.getMidnightUTC(now);
+        const lastUTC = user.lastStudyDate ? this.getMidnightUTC(user.lastStudyDate) : null;
+
+        if (lastUTC === null || todayUTC > lastUTC) {
+            user.dailyPoints = 0;
+            user.dailyDocs = 0;
+            user.dailyMessages = 0;
+        }
+
+        this.updateStreak(user, actionType);
+
+        user.points += pointsToAdd;
+        user.dailyPoints += pointsToAdd;
+        user.lastStudyDate = now; 
+
+        if (!user.pet) user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
+        user.pet.level = Math.floor(user.streak / 5) + 1; 
+        user.pet.mood = user.streak > 1 ? 'happy' : 'neutral';
+        user.markModified('pet');
+        
+        if (!user.studyStats) user.studyStats = { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 };
+        user.studyStats[actionType] = (user.studyStats[actionType] || 0) + 1;
+        user.markModified('studyStats');
+
+        user.totalStudyMinutes = (user.totalStudyMinutes || 0) + 5;
+        return user.save();
     }
 
-    // Feeding increases XP (hidden stat for now) and ensures Happiness
-    // We can simulate leveling up simply by streak for now as per existing logic, 
-    // or add a small boost here. Let's just boost mood and maybe add a 'lastFed' if we were using it.
-    // For this iteration, let's say feeding grants a small "happiness" boost which we track via mood.
-    user.pet.mood = 'super-happy'; 
-    
-    // Optional: chance to level up if we wanted more complex logic, 
-    // but right now level is tied to streak in addPoints. 
-    // Let's just keep it simple: Feeding = Happiness + Points deduction.
-    
-    user.markModified('pet');
-    return user.save();
-  }
+    async checkIn(userId: string): Promise<UserDocument> {
+        const user = await this.userModel.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        const now = new Date();
+        const todayUTC = this.getMidnightUTC(now);
+        const lastUTC = user.lastStudyDate ? this.getMidnightUTC(user.lastStudyDate) : null;
+
+        if (lastUTC === null || todayUTC > lastUTC) {
+            user.dailyPoints = 0;
+            user.dailyDocs = 0;
+            user.dailyMessages = 0;
+        }
+
+        this.updateStreak(user, 'login');
+        user.lastStudyDate = now;
+
+        if (!user.pet) user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
+        user.pet.level = Math.floor(user.streak / 5) + 1;
+        user.pet.mood = user.streak > 1 ? 'happy' : 'neutral';
+        user.markModified('pet');
+
+        return user.save();
+    }
+
+    async buyStreakFreeze(userId: string): Promise<UserDocument> {
+        const user = await this.userModel.findById(userId);
+        if (!user) throw new NotFoundException('User not found');
+
+        const COST = 50;
+        if (user.points < COST) throw new BadRequestException(`Need ${COST} XP to buy a freeze.`);
+        if ((user.streakFreezes || 0) >= 3) throw new BadRequestException('Inventory full (Max 3).');
+
+        user.points -= COST;
+        user.streakFreezes = (user.streakFreezes || 0) + 1;
+        return user.save();
+    }
+
+    async getStreakNumber(userId: string) {
+        const user = await this.userModel.findById(userId).exec();
+        if (!user) throw new NotFoundException('User not found');
+
+        const now = new Date();
+        const todayUTC = this.getMidnightUTC(now);
+        const lastUTC = user.lastStreakDate ? this.getMidnightUTC(user.lastStreakDate) : 0;
+        const diffDays = Math.floor((todayUTC - lastUTC) / (1000 * 60 * 60 * 24));
+
+        let liveStreak = user.streak;
+        let status = 'active';
+
+        if (diffDays > 1) {
+            if (diffDays === 2 && (user.streakFreezes || 0) > 0) status = 'frozen';
+            else { liveStreak = 0; status = 'expired'; }
+        }
+
+        return {
+            academicStreak: liveStreak,
+            loginStreak: this.calculateLiveStreak(user.activityStreaks?.login?.current || 0, user.activityStreaks?.login?.lastDate),
+            streakFreezes: user.streakFreezes || 0,
+            status: status,
+            longestStreak: user.longestStreak || 0
+        };
+    }
+
+    private calculateLiveStreak(streak: number, lastDate: Date | null): number {
+        if (!lastDate) return 0;
+        const diff = Math.floor((this.getMidnightUTC(new Date()) - this.getMidnightUTC(lastDate)) / (1000 * 60 * 60 * 24));
+        return diff <= 1 ? streak : 0;
+    }
+
+    async getLeaderboard(userId?: string) {
+        const filter = { role: { $nin: ['ADMIN', 'admin'] } };
+        const projection = 'firstName lastName email points dailyPoints streak level institution studyStats profilePicturePath';
+        
+        const topStudents = await this.userModel.find(filter).sort({ points: -1, _id: 1 }).limit(100).select(projection).exec();
+        const topStreaks = await this.userModel.find(filter).sort({ streak: -1, _id: 1 }).limit(100).select(projection).exec();
+
+        let userRank = { xp: 'Not Ranked', streak: 'Not Ranked' };
+        if (userId && /^[0-9a-fA-F]{24}$/.test(userId)) {
+            const user = await this.userModel.findById(userId).exec();
+            if (user) {
+                if (['ADMIN', 'admin'].includes(user.role)) userRank = { xp: 'Admin', streak: 'Admin' };
+                else {
+                    const xpRank = await this.userModel.countDocuments({ ...filter, $or: [{ points: { $gt: user.points ?? 0 } }, { points: user.points ?? 0, _id: { $lt: user._id } }] }) + 1;
+                    const streakRank = await this.userModel.countDocuments({ ...filter, $or: [{ streak: { $gt: user.streak ?? 0 } }, { streak: user.streak ?? 0, _id: { $lt: user._id } }] }) + 1;
+                    userRank = { xp: xpRank.toString(), streak: streakRank.toString() };
+                }
+            }
+        }
+        return { topStudents, topStreaks, userRank };
+    }
+
+    // --- Admin & Utils ---
+
+    async updateGroqKey(userId: string, apiKey: string): Promise<void> {
+        await this.userModel.findByIdAndUpdate(userId, { groqApiKey: apiKey }).exec();
+    }
+
+    async getContributedKeysCount(): Promise<number> {
+        return this.userModel.countDocuments({ groqApiKey: { $exists: true, $ne: null } }).exec();
+    }
+
+    async getUsersWithKeys(): Promise<UserDocument[]> {
+        return this.userModel.find({ groqApiKey: { $exists: true, $ne: null } }).select('groqApiKey createdAt').exec();
+    }
+
+    async checkActivityLimit(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<void> {
+        const user = await this.userModel.findById(userId);
+        if (!user) return;
+        const todayUTC = this.getMidnightUTC(new Date());
+        const lastUTC = user.lastStudyDate ? this.getMidnightUTC(user.lastStudyDate) : null;
+
+        if (lastUTC === null || todayUTC > lastUTC) {
+            user.dailyPoints = 0; user.dailyDocs = 0; user.dailyMessages = 0;
+            user.lastStudyDate = new Date(); await user.save();
+        }
+
+        const limit = type === 'dailyDocs' ? 20 : 50;
+        if (user[type] >= limit) throw new BadRequestException(`Daily limit of ${limit} reached.`);
+    }
+
+    async incrementActivityCount(userId: string, type: 'dailyDocs' | 'dailyMessages'): Promise<void> {
+        await this.userModel.findByIdAndUpdate(userId, { $inc: { [type]: 1 }, lastStudyDate: new Date() }).exec();
+    }
+
+    async findAll(): Promise<UserDocument[]> {
+        return this.userModel.find().select('-password -refreshToken').exec();
+    }
+
+    async delete(userId: string): Promise<void> {
+        await this.userModel.findByIdAndDelete(userId).exec();
+    }
+
+    async feedPet(userId: string): Promise<UserDocument> {
+        const user = await this.userModel.findById(userId);
+        if (!user || user.points < 50) throw new BadRequestException('Cannot feed pet.');
+        user.points -= 50;
+        if (!user.pet) user.pet = { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' };
+        user.pet.mood = 'super-happy';
+        user.markModified('pet');
+        return user.save();
+    }
 }

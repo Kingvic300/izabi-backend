@@ -562,7 +562,8 @@ export class AiService {
           }
 
           const summaries: string[] = [];
-          const BATCH_SIZE = 5; // Process 5 chunks concurrently
+          // OPTIMIZATION: Increased batch size from 5 to 10 for faster processing
+          const BATCH_SIZE = 10;
 
           for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
             const batch = chunks.slice(i, i + BATCH_SIZE);

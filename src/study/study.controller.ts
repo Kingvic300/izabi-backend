@@ -117,7 +117,8 @@ export class StudyController {
                     flashcards: job.flashcards,
                     questions: job.questions
                 } : null,
-                error: job.status === 'FAILED' ? (job.metadata as any)?.error : null
+                error: job.status === 'FAILED' ? (job.metadata as any)?.error : null,
+                progress: (job.metadata as any)?.progress || null
             }
         };
     }
@@ -125,6 +126,7 @@ export class StudyController {
     /**
      * PDF Analysis Endpoint - Detects if PDF needs splitting
      * Returns split suggestions instead of processing immediately
+     * OPTIMIZED: Now uses faster parallel processing
      */
     @UseGuards(JwtAuthGuard)
     @Post('analyze-pdf')
@@ -171,6 +173,7 @@ export class StudyController {
 
     /**
      * Process specific page range from a PDF
+     * OPTIMIZED: Now returns immediately with jobId for background processing
      */
     @UseGuards(JwtAuthGuard)
     @Post('process-pdf-section')
@@ -191,29 +194,100 @@ export class StudyController {
             throw new BadRequestException('File URL and page range are required');
         }
 
-        // Download file from Cloudinary
-        const axios = (await import('axios')).default;
-        const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-        const buffer = Buffer.from(response.data);
+        const userId = req.user.userId;
 
-        const file: Express.Multer.File = {
-            buffer,
-            originalname: sectionTitle || `pages-${pageStart}-${pageEnd}.pdf`,
-            mimetype: 'application/pdf',
-            size: buffer.length,
-        } as any;
-
-        // Extract specific page range
-        const { extractTextFromPageRange } = await import('../common/utils/pdf-splitter.js');
-        const extractedText = await extractTextFromPageRange(file, pageStart, pageEnd);
-
-        // Process as text ingestion
-        return this.studyService.startTextIngestion(req.user.userId, {
-            text: extractedText,
+        // Create job record immediately
+        const job = await this.studyService.create(userId, {
             fileName: sectionTitle || `Pages ${pageStart}-${pageEnd}`,
             type,
-            options
+            status: 'PROCESSING',
+            metadata: {
+                protocol: 'PDF_SECTION_ASYNC_v1',
+                pageStart,
+                pageEnd,
+                fileUrl,
+                progress: 0
+            }
         });
+
+        // Process in background (non-blocking)
+        this.processPDFSectionBackground(job._id.toString(), fileUrl, pageStart, pageEnd, sectionTitle, type, options, userId)
+            .catch(err => {
+                console.error(`[StudyController] Background PDF section processing failed:`, err);
+            });
+
+        return {
+            success: true,
+            jobId: job._id,
+            status: 'PROCESSING',
+            message: 'PDF section is being processed in the background. You can check the status using the jobId or navigate to other pages.'
+        };
+    }
+
+    private async processPDFSectionBackground(
+        jobId: string,
+        fileUrl: string,
+        pageStart: number,
+        pageEnd: number,
+        sectionTitle: string | undefined,
+        type: string,
+        options: any,
+        userId: string
+    ) {
+        try {
+            const job = await this.studyService.getJobStatus(jobId);
+            if (!job) return;
+
+            // Update progress: downloading
+            (job.metadata as any).progress = 10;
+            await job.save();
+
+            // Download file from Cloudinary
+            const axios = (await import('axios')).default;
+            const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+            const buffer = Buffer.from(response.data);
+
+            const file: Express.Multer.File = {
+                buffer,
+                originalname: sectionTitle || `pages-${pageStart}-${pageEnd}.pdf`,
+                mimetype: 'application/pdf',
+                size: buffer.length,
+            } as any;
+
+            // Update progress: extracting
+            (job.metadata as any).progress = 30;
+            await job.save();
+
+            // Extract specific page range
+            const { extractTextFromPageRange } = await import('../common/utils/pdf-splitter.js');
+            const extractedText = await extractTextFromPageRange(file, pageStart, pageEnd);
+
+            // Update progress: processing
+            (job.metadata as any).progress = 50;
+            await job.save();
+
+            // Process as text ingestion
+            const config = this.studyService['getMaterialConfig'](type, options);
+            const responseText = await this.aiService.processExtractedText(config.prompt, extractedText, userId);
+
+            // Update progress: finalizing
+            (job.metadata as any).progress = 90;
+            await job.save();
+
+            // Finalize
+            await this.studyService['finalizeMaterial'](job, responseText, type, config);
+
+            (job.metadata as any).progress = 100;
+            await job.save();
+        } catch (error: any) {
+            console.error(`[StudyController] PDF section background processing failed:`, error);
+            const job = await this.studyService.getJobStatus(jobId);
+            if (job) {
+                job.status = 'FAILED';
+                (job.metadata as any).error = error.message;
+                await job.save();
+            }
+        }
     }
 
     // --- Neural Voice System ---

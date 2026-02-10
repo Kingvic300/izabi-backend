@@ -1,6 +1,5 @@
-
 export const getOtpEmailTemplate = (otp: string): string => {
-  return `
+    return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,50 +7,61 @@ export const getOtpEmailTemplate = (otp: string): string => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Izabi Verification</title>
     <style>
-        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #09090b; color: #e4e4e7; }
-        .container { max-width: 600px; margin: 40px auto; background-color: #18181b; border: 1px solid #27272a; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-        .header { background: linear-gradient(90deg, #18181b 0%, #09090b 100%); padding: 30px; text-align: center; border-bottom: 1px solid #27272a; }
-        .logo { font-size: 24px; font-weight: 800; letter-spacing: 2px; color: #fff; text-decoration: none; }
+        body { margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; }
+        .wrapper { width: 100%; table-layout: fixed; background-color: #020617; padding-bottom: 40px; }
+        .container { max-width: 600px; margin: 40px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 24px; overflow: hidden; }
+        .header { padding: 40px 30px; text-align: center; background: linear-gradient(to bottom, #1e293b, #0f172a); }
+        .logo { font-size: 28px; font-weight: 800; letter-spacing: -1px; color: #ffffff; text-decoration: none; }
         .logo span { color: #3b82f6; }
-        .content { padding: 40px 30px; text-align: center; }
-        .h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; color: #ffffff; }
-        .text { font-size: 15px; line-height: 1.6; color: #a1a1aa; margin-bottom: 24px; }
-        .otp-container { margin: 30px 0; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; padding: 20px; text-align: center; display: inline-block; min-width: 200px; }
-        .otp-code { font-size: 32px; font-weight: 700; color: #3b82f6; letter-spacing: 8px; font-family: 'Courier New', monospace; }
-        .footer { padding: 30px; background-color: #09090b; text-align: center; font-size: 12px; color: #52525b; border-top: 1px solid #27272a; }
-        .footer-link { color: #52525b; text-decoration: underline; margin: 0 8px; }
+        .content { padding: 40px 40px; text-align: center; }
+        .title { font-size: 24px; font-weight: 700; margin-bottom: 16px; color: #ffffff; letter-spacing: -0.5px; }
+        .text { font-size: 16px; line-height: 1.6; color: #94a3b8; margin-bottom: 32px; }
+        .otp-box { margin: 32px 0; background: #1e293b; border: 2px dashed #3b82f6; border-radius: 16px; padding: 24px; display: inline-block; }
+        .otp-code { font-size: 42px; font-weight: 800; color: #3b82f6; letter-spacing: 12px; font-family: 'Courier New', monospace; margin-left: 12px; }
+        .info-card { background: rgba(59, 130, 246, 0.05); border-radius: 12px; padding: 16px; margin-top: 24px; border: 1px solid rgba(59, 130, 246, 0.1); }
+        .info-text { font-size: 13px; color: #64748b; margin: 0; }
+        .footer { padding: 32px; background-color: #020617; text-align: center; font-size: 13px; color: #475569; }
+        .footer-links { margin-top: 12px; }
+        .footer-link { color: #3b82f6; text-decoration: none; margin: 0 10px; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">IZABI<span>.</span></div>
-        </div>
-        <div class="content">
-            <h1 class="h1">Verify Your Account</h1>
-            <p class="text">Welcome to Izabi. To complete your registration and access the platform, please use the verification code below.</p>
-            
-            <div class="otp-container">
-                <div class="otp-code">${otp}</div>
+    <div class="wrapper">
+        <div class="container">
+            <div class="header">
+                <div class="logo">IZABI<span>.</span></div>
             </div>
+            <div class="content">
+                <h1 class="title">Verify your identity</h1>
+                <p class="text">Welcome to the future of learning. Use the secure code below to finish setting up your Izabi AI account.</p>
+                
+                <div class="otp-box">
+                    <div class="otp-code">${otp}</div>
+                </div>
 
-            <p class="text" style="font-size: 13px;">This code is valid for <strong>10 minutes</strong>. If you did not request this verification, please ignore this email.</p>
-        </div>
-        <div class="footer">
-            <p>&copy; ${new Date().getFullYear()} Izabi AI. All rights reserved.</p>
-            <p>
-                <a href="#" class="footer-link">Privacy Policy</a>
-                <a href="#" class="footer-link">Terms of Service</a>
-            </p>
+                <div class="info-card">
+                    <p class="info-text">This code expires in <strong>10 minutes</strong>.</p>
+                    <p class="info-text" style="margin-top: 8px;">If you didn't request this, you can safely ignore this email.</p>
+                </div>
+            </div>
+            <div class="footer">
+                <p>&copy; ${new Date().getFullYear()} Izabi AI. Master your curriculum with Intelligence.</p>
+                <div class="footer-links">
+                    <a href="#" class="footer-link">Support</a>
+                    <a href="#" class="footer-link">Privacy</a>
+                    <a href="#" class="footer-link">Terms</a>
+                </div>
+            </div>
         </div>
     </div>
 </body>
 </html>
-  `;
+    `;
 };
 
 export const getWelcomeEmailTemplate = (name: string): string => {
-  return `
+    const firstName = name ? name.split(' ')[0] : 'Scholar';
+    return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -59,26 +69,115 @@ export const getWelcomeEmailTemplate = (name: string): string => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Welcome to Izabi</title>
     <style>
-        body { margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #09090b; color: #e4e4e7; }
-        .container { max-width: 600px; margin: 40px auto; background-color: #18181b; border: 1px solid #27272a; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-        .header { background: linear-gradient(90deg, #18181b 0%, #09090b 100%); padding: 30px; text-align: center; border-bottom: 1px solid #27272a; }
-        .logo { font-size: 24px; font-weight: 800; letter-spacing: 2px; color: #fff; text-decoration: none; }
+        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; }
+        .container { max-width: 600px; margin: 20px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 24px; overflow: hidden; }
+        .header { padding: 40px; text-align: center; }
+        .logo { font-size: 24px; font-weight: 800; color: #fff; text-decoration: none; }
         .logo span { color: #3b82f6; }
-        .content { padding: 40px 30px; text-align: center; }
-        .h1 { font-size: 24px; font-weight: 700; margin-bottom: 16px; color: #ffffff; }
+        .hero { padding: 0 40px 40px 40px; text-align: center; }
+        .h1 { font-size: 32px; font-weight: 800; margin-bottom: 16px; color: #ffffff; letter-spacing: -1px; }
+        .hero-text { font-size: 16px; line-height: 1.6; color: #94a3b8; margin-bottom: 32px; }
+        .cta-button { display: inline-block; background: #3b82f6; color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 14px; font-weight: 600; font-size: 16px; box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3); }
         
-        .hero-text { font-size: 16px; line-height: 1.6; color: #a1a1aa; margin-bottom: 24px; max-width: 400px; margin-left: auto; margin-right: auto; }
+        .section-title { font-size: 12px; font-weight: 700; color: #3b82f6; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 24px; }
         
-        .cta-button { display: inline-block; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 12px; font-weight: 600; font-size: 16px; margin: 24px 0; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); letter-spacing: 0.5px; }
-        
-        .feature-grid { display: table; width: 100%; margin-top: 30px; border-top: 1px solid #27272a; padding-top: 30px; }
-        .feature-item { display: table-cell; width: 33%; padding: 10px; vertical-align: top; }
-        .feature-icon { font-size: 24px; margin-bottom: 10px; display: block; }
-        .feature-title { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px; display: block; }
-        .feature-desc { font-size: 12px; color: #71717a; line-height: 1.4; display: block; }
+        .feature-row { display: table; width: 100%; padding: 0 40px 40px 40px; }
+        .feature-item { display: block; margin-bottom: 20px; padding: 20px; background: #1e293b; border-radius: 16px; text-align: left; }
+        .feature-icon { font-size: 24px; float: left; margin-right: 16px; }
+        .feature-content { overflow: hidden; }
+        .feature-title { font-size: 16px; font-weight: 600; color: #fff; margin-bottom: 4px; display: block; }
+        .feature-desc { font-size: 14px; color: #94a3b8; line-height: 1.4; display: block; }
 
-        .footer { padding: 30px; background-color: #09090b; text-align: center; font-size: 12px; color: #52525b; border-top: 1px solid #27272a; }
-        .footer-link { color: #52525b; text-decoration: underline; margin: 0 8px; }
+        .streak-promo { margin: 0 40px 40px 40px; padding: 24px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #3b82f6; border-radius: 16px; text-align: center; }
+        .streak-text { color: #3b82f6; font-weight: 700; font-size: 14px; }
+
+        .footer { padding: 40px; background-color: #020617; text-align: center; font-size: 13px; color: #475569; border-top: 1px solid #1e293b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">IZABI<span>.</span></div>
+        </div>
+        <div class="hero">
+            <h1 class="h1">Welcome, ${firstName}!</h1>
+            <p class="hero-text">You just unlocked a powerhouse of AI tools designed to help you dominate your exams. From JAMB to University finals, we've got you.</p>
+            <a href="https://izabi.onrender.com" class="cta-button">Open My Dashboard</a>
+        </div>
+
+        <div style="padding: 0 40px;">
+            <div class="section-title">Your Learning Toolkit</div>
+            
+            <div class="feature-item">
+                <span class="feature-icon">📚</span>
+                <div class="feature-content">
+                    <span class="feature-title">Smart Summaries</span>
+                    <span class="feature-desc">Upload any PDF or image. Izabi extracts key concepts, formulas, and critical dates instantly.</span>
+                </div>
+            </div>
+
+            <div class="feature-item">
+                <span class="feature-icon">🎯</span>
+                <div class="feature-content">
+                    <span class="feature-title">Exam Simulations</span>
+                    <span class="feature-desc">Practice with AI-generated mocks for JAMB, WAEC, and JUPEB tailored to your syllabus.</span>
+                </div>
+            </div>
+
+            <div class="feature-item">
+                <span class="feature-icon">🎙️</span>
+                <div class="feature-content">
+                    <span class="feature-title">Audio Lessons</span>
+                    <span class="feature-desc">Listen to your study takeaways in English or clear Pidgin while you're on the move.</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="streak-promo">
+            <span class="feature-icon" style="float: none; display: block; margin: 0 auto 10px auto;">🦉</span>
+            <span class="feature-title">Your Pet is waiting!</span>
+            <p class="feature-desc">Meet your Izabi Owl. Level him up and keep him happy by maintaining your daily study streak.</p>
+            <div class="streak-text" style="margin-top: 10px;">Current Streak: 1 Day 🔥</div>
+        </div>
+
+        <div class="footer">
+            <p>You received this because you signed up for Izabi AI.</p>
+            <p style="margin-top: 10px;">&copy; ${new Date().getFullYear()} Izabi AI. Lagos, Nigeria.</p>
+        </div>
+    </div>
+</body>
+</html>
+    `;
+};
+
+export const getStreakFreezeTemplate = (name: string, freezesLeft: number): string => {
+    const firstName = name ? name.split(' ')[0] : 'Scholar';
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streak Frozen!</title>
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; }
+        .container { max-width: 600px; margin: 20px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 24px; overflow: hidden; }
+        .header { padding: 40px; text-align: center; background: linear-gradient(to bottom, #1e293b, #0f172a); }
+        .logo { font-size: 24px; font-weight: 800; color: #fff; text-decoration: none; }
+        .logo span { color: #3b82f6; }
+        .content { padding: 40px; text-align: center; }
+        .title { font-size: 28px; font-weight: 800; margin-bottom: 16px; color: #ffffff; letter-spacing: -1px; }
+        .text { font-size: 16px; line-height: 1.6; color: #94a3b8; margin-bottom: 32px; }
+        .freeze-icon { font-size: 64px; margin-bottom: 24px; display: block; animation: pulse 2s infinite; }
+        .cta-button { display: inline-block; background: #3b82f6; color: #ffffff; text-decoration: none; padding: 16px 32px; border-radius: 14px; font-weight: 600; font-size: 16px; margin-bottom: 24px; }
+        .stat-box { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; padding: 16px; margin-top: 24px; display: inline-block; }
+        .footer { padding: 32px; background-color: #020617; text-align: center; font-size: 13px; color: #475569; }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
 <body>
@@ -87,38 +186,23 @@ export const getWelcomeEmailTemplate = (name: string): string => {
             <div class="logo">IZABI<span>.</span></div>
         </div>
         <div class="content">
-            <h1 class="h1">Welcome aboard, ${name}!</h1>
-            <p class="hero-text">Your journey to smarter studying starts here. Izabi transforms your documents into interactive study materials in seconds.</p>
+            <span class="freeze-icon">❄️</span>
+            <h1 class="title">Streak Frozen!</h1>
+            <p class="text">Hey ${firstName}, you missed a day of studying, but don't worry! We used a <strong>Streak Freeze</strong> to save your progress.</p>
             
-            <a href="https://izabi.onrender.com" class="cta-button">Start Studying Now</a>
+            <a href="https://izabi.onrender.com/dashboard" class="cta-button">Login to Keep Streak</a>
+            
+            <p class="text" style="font-size: 14px;">If you don't study today, you might lose your streak for real!</p>
 
-            <div class="feature-grid">
-                <div class="feature-item">
-                    <span class="feature-icon">🚀</span>
-                    <span class="feature-title">Fast Uploads</span>
-                    <span class="feature-desc">Process PDFs instantly</span>
-                </div>
-                <div class="feature-item">
-                    <span class="feature-icon">🧠</span>
-                    <span class="feature-title">AI Summaries</span>
-                    <span class="feature-desc">Get the key points</span>
-                </div>
-                <div class="feature-item">
-                    <span class="feature-icon">⚡</span>
-                    <span class="feature-title">Smart Quizzes</span>
-                    <span class="feature-desc">Test your knowledge</span>
-                </div>
+            <div class="stat-box">
+                <strong>Inventory:</strong> ${freezesLeft} Freezes Left
             </div>
         </div>
         <div class="footer">
-            <p>&copy; ${new Date().getFullYear()} Izabi AI. All rights reserved.</p>
-            <p>
-                <a href="#" class="footer-link">Privacy Policy</a>
-                <a href="#" class="footer-link">Terms of Service</a>
-            </p>
+            <p>&copy; ${new Date().getFullYear()} Izabi AI. Master your curriculum.</p>
         </div>
     </div>
 </body>
 </html>
-  `;
+    `;
 };

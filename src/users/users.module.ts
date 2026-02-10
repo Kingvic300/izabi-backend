@@ -9,12 +9,15 @@ import { AuthModule } from '../auth/auth.module';
 import { NotesModule } from '../notes/notes.module';
 import { QuizModule } from '../quiz/quiz.module';
 
+import { MailModule } from '../mail/mail.module';
+
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
     forwardRef(() => AuthModule),
     NotesModule,
-    QuizModule,
+    forwardRef(() => QuizModule),
+    MailModule,
   ],
   controllers: [UsersController, AdminController],
   providers: [UsersService],

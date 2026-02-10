@@ -5,89 +5,99 @@ export type UserDocument = User & Document;
 
 @Schema({ timestamps: true })
 export class User {
-  @Prop({ required: true, unique: true })
-  email: string;
+    @Prop({ required: true, unique: true })
+    email: string;
 
-  @Prop({ required: true, select: false })
-  password: string;
+    @Prop({ required: true, select: false })
+    password: string;
 
-  @Prop({ default: 'USER' })
-  role: string;
+    @Prop({ default: 'USER' })
+    role: string;
 
-  @Prop()
-  firstName: string;
+    @Prop()
+    firstName: string;
 
-  @Prop()
-  lastName: string;
+    @Prop()
+    lastName: string;
 
-  @Prop()
-  phoneNumber: string;
+    @Prop()
+    phoneNumber: string;
 
-  @Prop()
-  institution: string;
+    @Prop()
+    institution: string;
 
-  @Prop()
-  major: string;
+    @Prop()
+    major: string;
 
-  @Prop()
-  location: string;
+    @Prop()
+    location: string;
 
-  @Prop()
-  profilePicturePath: string;
+    @Prop()
+    profilePicturePath: string;
 
-  @Prop()
-  otp: string;
+    @Prop()
+    otp: string;
 
-  @Prop()
-  otpExpires: Date;
+    @Prop()
+    otpExpires: Date;
 
-  @Prop({ default: false })
-  isVerified: boolean;
+    @Prop({ default: false })
+    isVerified: boolean;
 
-  @Prop({ default: 0 })
-  points: number;
+    // --- Gamification & Progression ---
 
-  @Prop({ default: 0 })
-  dailyPoints: number;
-  
-  @Prop({ default: 0 })
-  dailyDocs: number;
+    @Prop({ default: 0 })
+    points: number;
 
-  @Prop({ default: 0 })
-  dailyMessages: number;
+    @Prop({ default: 1 }) // Added for the weekly level-up logic
+    level: number;
 
-  @Prop({ default: 0 })
-  streak: number;
+    @Prop({ default: 0 })
+    dailyPoints: number;
+    
+    @Prop({ default: 0 })
+    dailyDocs: number;
 
-  @Prop({ default: 0 })
-  longestStreak: number;
+    @Prop({ default: 0 })
+    dailyMessages: number;
 
-  @Prop()
-  lastStreakDate: Date;
+    @Prop({ default: 0 })
+    streak: number;
 
-  @Prop({ type: Object, default: {} })
-  activityStreaks: Record<string, { current: number; longest: number; lastDate: Date }>;
+    @Prop({ default: 0 })
+    longestStreak: number;
 
-  @Prop({ default: 0 })
-  totalStudyMinutes: number;
+    @Prop({ default: 0 }) // Added for the 1-day protection logic
+    streakFreezes: number;
 
-  @Prop()
-  lastStudyDate: Date;
+    @Prop()
+    lastStreakDate: Date;
 
-  @Prop({ type: Object, default: { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 } })
-  studyStats: any;
+    @Prop({ type: Object, default: {} })
+    activityStreaks: Record<string, { current: number; longest: number; lastDate: Date }>;
 
-  @Prop({ type: Object, default: { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' } })
-  pet: any;
+    @Prop({ default: 0 })
+    totalStudyMinutes: number;
 
-  @Prop()
-  refreshToken: string;
+    @Prop()
+    lastStudyDate: Date;
 
-  @Prop()
-  groqApiKey: string;
+    @Prop({ type: Object, default: { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 } })
+    studyStats: any;
 
-  createdAt?: Date;
-  updatedAt?: Date;
+    @Prop({ type: Object, default: { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' } })
+    pet: any;
+
+    // --- System & Integration ---
+
+    @Prop()
+    refreshToken: string;
+
+    @Prop()
+    groqApiKey: string;
+
+    createdAt?: Date;
+    updatedAt?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

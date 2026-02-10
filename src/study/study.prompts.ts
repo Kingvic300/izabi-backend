@@ -1,97 +1,94 @@
 /**
  * GLOBAL AI CONSTRAINTS (Apply to all prompts below):
- * 1. STRICT SOURCE GROUNDING: All outputs must be derived ONLY from the provided context. Do NOT use external knowledge.
- * 2. INSUFFICIENT CONTENT: If the input is too short, repetitive, or low-quality to satisfy the prompt:
- *    Return ONLY this JSON: {"status": "error", "reason": "Explanation of why content is insufficient"}.
- * 3. NO DUPLICATION: Each generated item (question, card, segment) must cover a distinct concept. No semantic repetition.
- * 4. DETERMINISTIC OUTPUT: Return ONLY the requested format (JSON or Markdown). Zero preamble or commentary.
+ * 1. STRICT SOURCE GROUNDING: All outputs must be derived ONLY from the provided context.
+ * 2. INSUFFICIENT CONTENT: If input is too short or blurry, return ONLY: {"status": "error", "reason": "Explanation"}
+ * 3. NO PREAMBLE: Start directly with the data. No "Here is your summary..." or "Sure!"
+ * 4. SCHEMA DISCIPLINE: JSON must be valid, escaped, and parseable.
  */
 
 export const STUDY_PROMPTS = {
-  SUMMARY: `You are an Expert Study Assistant. Analyze the document segment and generate a summary based ONLY on facts present in the text.
+    SUMMARY: `Analyze this document as an expert Academic Strategist. Generate a summary optimized for exam preparation.
 RULES:
-- No speculative interpretation or implications not explicitly stated.
-- Prioritize factual clarity over stylistic flair.
+- Use strict source grounding.
+- Identify "High-Yield" topics likely to appear in JAMB, WAEC, or University exams.
 STRUCTURE:
-- **NEURAL CORE**: The singularity point of the document in one punchy sentence.
-- **CONCEPT SEGMENTS**: Deep-layer analysis of the 5-10 primary architectural concepts.
-- **INTEGRATED SYNTHESIS**: A high-density narrative connecting all segments.
-- **CRITICAL DATA POINTS**: 5 essential facts from the text.`,
+- **NEURAL CORE**: The document's essence in one powerful sentence.
+- **SYLLABUS MAPPING**: Break down the 5-10 primary architectural concepts found in the text.
+- **INTEGRATED SYNTHESIS**: A narrative connecting these concepts logically.
+- **EXAM-READY DATA**: 5 verbatim facts, dates, or formulas critical for retention.
+FORMAT: Return in clean Markdown.`,
 
-  FLASHCARDS: `Transform this data into up to 10 high-recall Flashcards (exactly 10 if content allows).
+    FLASHCARDS: `Transform this material into exactly 10 high-recall Flashcards (or fewer if content is limited).
 RULES:
-- Each card must test a unique concept (no duplicates).
-- If context is insufficient for 10 high-quality cards, return only as many as are validly supported.
+- No semantic repetition. 
+- Front must be a question or concept; Back must be a concise resolution.
 RETURN ONLY a JSON array:
-[{"front": "concept/query", "back": "resolution/definition"}]`,
+[{"front": "string", "back": "string"}]`,
 
-  QUIZ: (count: number) => `You are an Expert Quiz Generator. Generate exactly ${count} Practice Questions based ONLY on the provided data.
+    QUIZ: (count: number) => `Generate exactly ${count} Practice Questions based ONLY on the provided context.
 RULES:
-- Verbatim Answers: Correct answers must be directly inferable/present in the context.
-- Schema Discipline: "multiple_choice" MUST have 4 options. "short_answer" MUST have an empty options array or null.
-- No Concept Repetition: Every question must test a distinct idea.
-JSON STRUCTURE:
+- "multiple_choice" must have exactly 4 options.
+- "short_answer" must have a null options array.
+- Distractors must be plausible but clearly incorrect based on the text.
+RETURN ONLY a JSON array:
 [
-  {
-    "question": "string",
-    "options": ["string", "string", "string", "string"],
-    "answer": "string",
-    "questionType": "multiple_choice" | "short_answer",
-    "explanation": "Brief concept link explaining the answer."
-  }
+    {
+        "question": "string",
+        "options": ["string", "string", "string", "string"],
+        "answer": "string",
+        "questionType": "multiple_choice" | "short_answer",
+        "explanation": "Verbatim link to the context explaining why this is correct."
+    }
 ]`,
 
-  STUDY_GUIDE: `You are a curriculum designer. Transform this material into a structured "Ultimate Study Guide".
+    STUDY_GUIDE: `Act as a Curriculum Designer. Create a structured Study Guide from this material.
 RULES:
-- No External Topics: Do not introduce subjects not explicitly present in the context.
-- Exam Readiness: Optimize for retention and clarity, not verbosity.
-- Use Markdown headers, bold technical terms, and include a "Cheat Sheet" summary at the end.`,
+- Optimize for "Deep Work" sessions.
+- Use Markdown headers (#, ##).
+- Bold technical terms.
+- End with a "5-Minute Cheat Sheet" containing the most important formulas or definitions.`,
 
-  PIDGIN_TRANSLATION: (text: string) => `Rewrite the following text in standard West African Pidgin English.
+    PIDGIN_TRANSLATION: (text: string) => `Rewrite the following text in clear West African Pidgin English.
 RULES:
-- Technical Accuracy: Do not oversimplify or omit technical study concepts during translation.
-- Preserve all key names, formulas, and definitions verbatim.
+- TECHNICAL PRESERVATION: Do NOT translate technical terms, names, or formulas (e.g., keep "Photosynthesis", "Pythagoras", "Ohm's Law" exactly as they are).
+- Use standard Pidgin grammar used in Nigeria/Ghana.
+- Keep the tone academic but accessible.
 TEXT: ${text}`,
 
-  QUICK_TEST: `You are a strict Examiner. Generate a 7-question "Quick Test" based ONLY on the provided context.
-PRE-GENERATION CHECK:
-- Verify context contains enough information for 7 distinct, high-quality questions.
-- If not, return only the Error JSON defined in Global Constraints.
-
+    QUICK_TEST: `Generate a strict 7-question "Quick Test" from the context provided.
 CONSTRAINTS:
 1. Exactly 7 questions (4 Multiple Choice, 2 True/False, 1 Short Answer).
-2. Question Integrity: No contradictory answers or explanations. No semantic overlap.
-3. ID Rules: Question IDs must be sequential (q1, q2, q3, q4, q5, q6, q7).
-4. Answers: Correct answers must appear verbatim or near-verbatim in the context.
-
-JSON STRUCTURE:
+2. Sequential IDs: q1 through q7.
+3. Correct answers must be directly present in the source text.
+4. Duration: 300 seconds.
+RETURN ONLY a JSON object:
 {
-  "title": "Quick Test: [Topic from context]",
-  "durationSeconds": 300,
-  "questions": [
-    {
-      "id": "q1",
-      "type": "multiple_choice",
-      "text": "string",
-      "options": ["Correct", "D1", "D2", "D3"],
-      "correctAnswer": "Correct",
-      "explanation": "string"
-    },
-    {
-      "id": "q5",
-      "type": "true_false",
-      "text": "string",
-      "options": ["True", "False"],
-      "correctAnswer": "True",
-      "explanation": "string"
-    },
-    {
-      "id": "q7",
-      "type": "short_answer",
-      "text": "string",
-      "correctAnswer": "string",
-      "explanation": "string"
-    }
-  ]
+    "title": "Quick Test: [Topic]",
+    "durationSeconds": 300,
+    "questions": [
+        {
+            "id": "q1",
+            "type": "multiple_choice",
+            "text": "string",
+            "options": ["string", "string", "string", "string"],
+            "correctAnswer": "string",
+            "explanation": "string"
+        },
+        {
+            "id": "q5",
+            "type": "true_false",
+            "text": "string",
+            "options": ["True", "False"],
+            "correctAnswer": "string",
+            "explanation": "string"
+        },
+        {
+            "id": "q7",
+            "type": "short_answer",
+            "text": "string",
+            "correctAnswer": "string",
+            "explanation": "string"
+        }
+    ]
 }`
 };

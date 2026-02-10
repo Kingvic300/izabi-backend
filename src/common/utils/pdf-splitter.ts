@@ -54,7 +54,7 @@ const THRESHOLDS = {
 };
 
 /**
- * Analyzes PDF before full extraction to determine if splitting is needed
+ * OPTIMIZED: Analyzes PDF with parallel processing and early exit
  */
 export const analyzePDFForSplitting = async (
   file: Express.Multer.File
@@ -78,15 +78,22 @@ export const analyzePDFForSplitting = async (
 
     const pageCount = doc.numPages;
 
-    // Quick sample: Extract text from first 5 pages to estimate density
-    const samplePages = Math.min(5, pageCount);
-    let sampleText = '';
+    // OPTIMIZATION 1: Sample fewer pages for large documents (3 instead of 5)
+    const samplePages = Math.min(3, pageCount);
     
+    // OPTIMIZATION 2: Parallel page extraction
+    const pagePromises = [];
     for (let i = 1; i <= samplePages; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      sampleText += content.items.map((item: any) => item.str).join(' ');
+      pagePromises.push(
+        doc.getPage(i).then(async (page: any) => {
+          const content = await page.getTextContent();
+          return content.items.map((item: any) => item.str).join(' ');
+        })
+      );
     }
+    
+    const pageTexts = await Promise.all(pagePromises);
+    const sampleText = pageTexts.join(' ');
 
     const avgCharsPerPage = sampleText.length / samplePages;
     const estimatedChars = Math.round(avgCharsPerPage * pageCount);
@@ -106,8 +113,15 @@ export const analyzePDFForSplitting = async (
       };
     }
 
-    // If splitting needed, generate suggestions
-    const metadata = await extractPDFMetadata(doc);
+    // OPTIMIZATION 3: Lightweight metadata extraction (skip TOC parsing for speed)
+    const metadata: PDFMetadata = {
+      pageCount,
+      fileSizeMB,
+      hasTableOfContents: false,
+      detectedChapters: [],
+      textDensity: avgCharsPerPage,
+    };
+
     const suggestions = generateSplitSuggestions(metadata, file.originalname);
 
     return {
@@ -125,92 +139,7 @@ export const analyzePDFForSplitting = async (
 };
 
 /**
- * Extracts metadata including chapters and TOC
- */
-const extractPDFMetadata = async (doc: any): Promise<PDFMetadata> => {
-  const pageCount = doc.numPages;
-  const detectedChapters: Chapter[] = [];
-
-  try {
-    // Try to extract table of contents (outline)
-    const outline = await doc.getOutline();
-    
-    if (outline && outline.length > 0) {
-      for (const item of outline) {
-        const dest = await doc.getDestination(item.dest);
-        let pageNum = 1;
-        
-        if (dest && dest[0]) {
-          try {
-            const pageRef = await doc.getPageIndex(dest[0]);
-            pageNum = pageRef + 1; // 1-indexed
-          } catch (e) {
-            // Fallback: parse from item title if it contains page numbers
-            const match = item.title.match(/page\s+(\d+)/i);
-            if (match) pageNum = parseInt(match[1]);
-          }
-        }
-
-        detectedChapters.push({
-          title: item.title,
-          pageStart: pageNum,
-          level: item.items && item.items.length > 0 ? 1 : 2,
-        });
-      }
-
-      // Sort by page number and infer end pages
-      detectedChapters.sort((a, b) => a.pageStart - b.pageStart);
-      for (let i = 0; i < detectedChapters.length - 1; i++) {
-        detectedChapters[i].pageEnd = detectedChapters[i + 1].pageStart - 1;
-      }
-      detectedChapters[detectedChapters.length - 1].pageEnd = pageCount;
-    }
-  } catch (e) {
-    console.log('[PDF Metadata] No TOC found, will use heuristic detection');
-  }
-
-  // Heuristic chapter detection: Scan first pages for patterns
-  if (detectedChapters.length === 0) {
-    const chapterPatterns = [
-      /chapter\s+(\d+)[:\s]+(.+)/i,
-      /section\s+(\d+)[:\s]+(.+)/i,
-      /part\s+(\d+)[:\s]+(.+)/i,
-      /unit\s+(\d+)[:\s]+(.+)/i,
-    ];
-
-    for (let i = 1; i <= Math.min(pageCount, 50); i++) {
-      try {
-        const page = await doc.getPage(i);
-        const content = await page.getTextContent();
-        const text = content.items.map((item: any) => item.str).join(' ');
-
-        for (const pattern of chapterPatterns) {
-          const match = text.match(pattern);
-          if (match) {
-            detectedChapters.push({
-              title: match[2]?.trim() || `Chapter ${match[1]}`,
-              pageStart: i,
-              level: 1,
-            });
-          }
-        }
-      } catch (e) {
-        // Skip problematic pages
-      }
-    }
-  }
-
-  return {
-    pageCount,
-    fileSizeMB: 0, // Will be set by caller
-    hasTableOfContents: detectedChapters.length > 0,
-    detectedChapters,
-    textDensity: 0,
-  };
-};
-
-/**
- * Generates smart split suggestions based on metadata
+ * OPTIMIZED: Lightweight split suggestions without heavy chapter detection
  */
 const generateSplitSuggestions = (
   metadata: PDFMetadata,
@@ -218,41 +147,7 @@ const generateSplitSuggestions = (
 ): SplitSuggestion[] => {
   const suggestions: SplitSuggestion[] = [];
 
-  // Strategy 1: Chapter-based splitting (if chapters detected)
-  if (metadata.detectedChapters.length > 0) {
-    // Group small adjacent chapters to meet minimum size
-    let currentGroup: Chapter[] = [];
-    let groupStartPage = 1;
-
-    for (let i = 0; i < metadata.detectedChapters.length; i++) {
-      const chapter = metadata.detectedChapters[i];
-      currentGroup.push(chapter);
-
-      const groupPageCount = (chapter.pageEnd || metadata.pageCount) - groupStartPage + 1;
-
-      // If group is large enough or last chapter, create suggestion
-      if (groupPageCount >= THRESHOLDS.MIN_CHUNK_PAGES || i === metadata.detectedChapters.length - 1) {
-        suggestions.push({
-          id: `chapter-${suggestions.length + 1}`,
-          strategy: 'chapter',
-          label: currentGroup.length === 1 
-            ? currentGroup[0].title 
-            : `${currentGroup[0].title} to ${currentGroup[currentGroup.length - 1].title}`,
-          pageStart: groupStartPage,
-          pageEnd: chapter.pageEnd || metadata.pageCount,
-          estimatedChars: groupPageCount * 2000, // Rough estimate
-          detectedTitle: currentGroup[0].title,
-          recommendedFor: 'Best for textbooks and structured documents',
-        });
-
-        // Reset for next group
-        currentGroup = [];
-        groupStartPage = (chapter.pageEnd || metadata.pageCount) + 1;
-      }
-    }
-  }
-
-  // Strategy 2: Fixed page-range splitting
+  // Strategy: Fixed page-range splitting (most reliable and fast)
   const rangeSize = THRESHOLDS.IDEAL_CHUNK_PAGES;
   for (let start = 1; start <= metadata.pageCount; start += rangeSize) {
     const end = Math.min(start + rangeSize - 1, metadata.pageCount);
@@ -268,7 +163,7 @@ const generateSplitSuggestions = (
     });
   }
 
-  // Strategy 3: Custom placeholder (handled by frontend)
+  // Strategy: Custom placeholder (handled by frontend)
   suggestions.push({
     id: 'custom',
     strategy: 'custom',
@@ -302,7 +197,7 @@ const getDynamicReason = (pages: number, chars: number, sizeMB: number): string 
 };
 
 /**
- * Extracts text from specific page range
+ * OPTIMIZED: Extracts text from specific page range with parallel processing
  */
 export const extractTextFromPageRange = async (
   file: Express.Multer.File,
@@ -327,14 +222,19 @@ export const extractTextFromPageRange = async (
       throw new BadRequestException(`Invalid page range: ${pageStart}-${pageEnd}`);
     }
 
-    let fullText = '';
-    
+    // OPTIMIZATION: Parallel page extraction
+    const pagePromises = [];
     for (let i = pageStart; i <= pageEnd; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      const strings = content.items.map((item: any) => item.str);
-      fullText += strings.join(' ') + '\n';
+      pagePromises.push(
+        doc.getPage(i).then(async (page: any) => {
+          const content = await page.getTextContent();
+          return content.items.map((item: any) => item.str).join(' ') + '\n';
+        })
+      );
     }
+
+    const pageTexts = await Promise.all(pagePromises);
+    const fullText = pageTexts.join('');
 
     return fullText
       .replace(/\r\n/g, '\n')

@@ -31,17 +31,18 @@ export class AuditInterceptor implements NestInterceptor {
     }
 
     const startTime = Date.now();
-    const eventId = uuidv4();
 
     return next.handle().pipe(
       tap((data) => {
-        // SUCCESS PATH
+        // SUCCESS PATH - Generate a NEW unique eventId for each log attempt
+        const eventId = uuidv4();
         this.logAction(context, 'SUCCESS', eventId).catch(err => 
           console.error('[AuditInterceptor] Success log failed', err)
         );
       }),
       catchError((error) => {
-        // FAILURE PATH
+        // FAILURE PATH - Generate a NEW unique eventId for each log attempt
+        const eventId = uuidv4();
         this.logAction(context, 'FAILURE', eventId, error).catch(err =>
           console.error('[AuditInterceptor] Failure log failed', err)
         );

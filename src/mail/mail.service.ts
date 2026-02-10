@@ -48,4 +48,22 @@ export class MailService {
       // No throw here to allow non-blocking audit flow if used in Tap/Tap
     }
   }
+
+  // HOW: Notify user that a streak freeze was used
+  async sendStreakFreezeNotification(email: string, name: string, freezesLeft: number) {
+    const { getStreakFreezeTemplate } = require('./mail.templates');
+    
+    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+    sendSmtpEmail.subject = '❄️ Streak Frozen! (Action Required)';
+    sendSmtpEmail.htmlContent = getStreakFreezeTemplate(name, freezesLeft);
+    sendSmtpEmail.sender = { name: 'Izabi Gamification', email: this.configService.get<string>('MAIL_FROM') };
+    sendSmtpEmail.to = [{ email }];
+
+    try {
+      await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+      console.log(`[MailService] Freeze notification sent to ${email}`);
+    } catch (error) {
+      console.error(`[MailService] Freeze notification failed:`, error.message);
+    }
+  }
 }
