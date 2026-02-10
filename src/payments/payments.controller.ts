@@ -115,6 +115,15 @@ export class PaymentsController {
   }
 
   /**
+   * Cancel auto-renewal of a subscription
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('cancel-auto-renew')
+  async cancelAutoRenew(@Req() req: any) {
+    return this.paymentsService.cancelAutoRenew(req.user.userId);
+  }
+
+  /**
    * Get list of banks
    */
   @UseGuards(JwtAuthGuard)

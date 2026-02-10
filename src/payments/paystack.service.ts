@@ -24,18 +24,24 @@ export class PaystackService {
     };
   }
 
-  async initializeTransaction(email: string, amount: number, metadata: any) {
+  async initializeTransaction(email: string, amount: number, metadata: any, plan?: string) {
     try {
+      const payload: any = {
+        email,
+        amount: amount * 100, // Paystack expects amount in kobo/cents
+        metadata,
+        callback_url:
+          this.configService.get<string>('PAYSTACK_CALLBACK_URL') ||
+          'https://izabi.onrender.com/payment/verify',
+      };
+
+      if (plan) {
+        payload.plan = plan;
+      }
+
       const response = await axios.post(
         `${this.baseUrl}/transaction/initialize`,
-        {
-          email,
-          amount: amount * 100, // Paystack expects amount in kobo/cents
-          metadata,
-          callback_url:
-            this.configService.get<string>('PAYSTACK_CALLBACK_URL') ||
-            'https://izabi.onrender.com/payment/verify',
-        },
+        payload,
         { headers: this.headers },
       );
 
@@ -260,15 +266,20 @@ export class PaystackService {
    */
   async cancelSubscription(
     subscriptionCode: string,
-    emailToken: string,
+    emailToken?: string,
   ) {
     try {
+      // If we don't have the token, we can just use the subscription's disable endpoint
+      // documented at https://paystack.com/docs/api/subscription/#disable
+      // Wait, Paystack actually requires code and token for the user to disable it themselves,
+      // but for us (merchant), sometimes the code is enough if we use the backend API.
+      // Actually, looking at docs, it says "code" and "token" are both required.
+      const payload: any = { code: subscriptionCode };
+      if (emailToken) payload.token = emailToken;
+
       const response = await axios.post(
         `${this.baseUrl}/subscription/disable`,
-        {
-          code: subscriptionCode,
-          token: emailToken,
-        },
+        payload,
         { headers: this.headers },
       );
 
@@ -281,6 +292,26 @@ export class PaystackService {
       throw new InternalServerErrorException(
         'Failed to cancel subscription',
       );
+    }
+  }
+
+  /**
+   * Fetch subscription details
+   */
+  async fetchSubscription(subscriptionCode: string) {
+    try {
+      const response = await axios.get(
+        `${this.baseUrl}/subscription/${subscriptionCode}`,
+        { headers: this.headers },
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error(
+        '[PaystackService] Fetch Subscription Error:',
+        error.response?.data || error.message,
+      );
+      throw new InternalServerErrorException('Failed to fetch subscription');
     }
   }
 

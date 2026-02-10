@@ -23,12 +23,14 @@ export class PaymentsService {
       amount: 199900, // 1,999 NGN in kobo
       tier: 'pro',
       duration: 30, // days
+      paystackPlan: 'PLN_pro_scholar_monthly', // You'll need to create this in Paystack Dashboard
     },
     premium_monthly: {
       name: 'Premium Scholar Monthly',
       amount: 299900, // 2,999 NGN in kobo
       tier: 'premium',
       duration: 30, // days
+      paystackPlan: 'PLN_premium_scholar_monthly', // You'll need to create this in Paystack Dashboard
     },
   };
 
@@ -47,6 +49,7 @@ export class PaymentsService {
       user.email,
       selectedPlan.amount,
       { userId, plan },
+      selectedPlan.paystackPlan,
     );
 
     // 2. Log pending payment in DB
@@ -113,10 +116,50 @@ export class PaymentsService {
 
     // Update user subscription
     await this.usersService.updateSubscription(userId, {
-      status: selectedPlan.tier,
+      status: selectedPlan.tier as any,
       expiry: expiry,
       customerCode: customerCode,
     });
+  }
+
+  /**
+   * Cancel auto-renewal for a user's subscription
+   */
+  async cancelAutoRenew(userId: string) {
+    const user = await this.usersService.findOne(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    if (!user.paystackSubscriptionCode) {
+      throw new BadRequestException('No active recurring subscription found');
+    }
+
+    try {
+      // 1. Fetch subscription to get the email token if we don't have it
+      const sub = await this.paystackService.fetchSubscription(user.paystackSubscriptionCode);
+      const emailToken = sub.data.email_token;
+
+      // 2. Disable subscription
+      await this.paystackService.cancelSubscription(user.paystackSubscriptionCode, emailToken);
+
+      // 3. Clear from user profile
+      await this.usersService.updateSubscription(userId, {
+        status: user.subscriptionStatus as any, // Keep status until it expires
+        expiry: user.subscriptionExpiry,
+        customerCode: user.paystackCustomerCode,
+      });
+      
+      // Update the subscription code to null so it doesn't try to cancel again
+      await (user as any).updateOne({ paystackSubscriptionCode: null, paystackEmailToken: null });
+
+      return {
+        success: true,
+        message: 'Auto-renewal successfully cancelled. Your benefits will remain active until ' + 
+                 user.subscriptionExpiry.toLocaleDateString(),
+      };
+    } catch (error) {
+      console.error('[PaymentsService] Cancel Auto-renew Error:', error);
+      throw new BadRequestException('Failed to cancel auto-renewal with Paystack');
+    }
   }
 
   /**

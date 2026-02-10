@@ -341,7 +341,7 @@ export class UsersService {
 
   async updateSubscription(
     userId: string,
-    data: { status: 'free' | 'premium'; expiry: Date; customerCode?: string },
+    data: { status: 'free' | 'pro' | 'premium'; expiry: Date; customerCode?: string },
   ) {
     const user = await this.userModel.findById(userId);
     if (!user) throw new NotFoundException('User not found');
