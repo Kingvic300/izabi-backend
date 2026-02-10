@@ -211,7 +211,7 @@ export class AiService {
                 max_tokens: this.MAX_OUTPUT_TOKENS,
                 stream,
                 temperature: 0.2, // Lower temperature for more consistent JSON
-                response_format: { type: "json_object" } // Tell Groq we want JSON
+
             }, {
                 headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
                 responseType: stream ? 'stream' : 'json',
