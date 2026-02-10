@@ -5,118 +5,133 @@ export type UserDocument = User & Document;
 
 @Schema({ timestamps: true })
 export class User {
-    @Prop({ required: true, unique: true })
-    email: string;
+  @Prop({ required: true, unique: true })
+  email: string;
 
-    @Prop({ required: true, select: false })
-    password: string;
+  @Prop({ select: false })
+  password?: string;
 
-    @Prop({ default: 'USER' })
-    role: string;
+  @Prop({ unique: true, sparse: true })
+  googleId?: string;
 
-    @Prop()
-    firstName: string;
+  @Prop({ default: 'local' })
+  authProvider: 'local' | 'google';
 
-    @Prop()
-    lastName: string;
+  @Prop({ default: 'USER' })
+  role: string;
 
-    @Prop()
-    phoneNumber: string;
+  @Prop()
+  firstName: string;
 
-    @Prop()
-    institution: string;
+  @Prop()
+  lastName: string;
 
-    @Prop()
-    major: string;
+  @Prop()
+  phoneNumber: string;
 
-    @Prop()
-    location: string;
+  @Prop()
+  institution: string;
 
-    @Prop()
-    profilePicturePath: string;
+  @Prop()
+  major: string;
 
-    @Prop()
-    otp: string;
+  @Prop()
+  location: string;
 
-    @Prop()
-    otpExpires: Date;
+  @Prop()
+  profilePicturePath: string;
 
-    @Prop({ default: false })
-    isVerified: boolean;
+  @Prop()
+  otp: string;
 
-    // --- Gamification & Progression ---
+  @Prop()
+  otpExpires: Date;
 
-    @Prop({ default: 0 })
-    points: number;
+  @Prop({ default: false })
+  isVerified: boolean;
 
-    @Prop({ default: 1 }) // Added for the weekly level-up logic
-    level: number;
+  // --- Gamification & Progression ---
 
-    @Prop({ default: 0 })
-    dailyPoints: number;
-    
-    @Prop({ default: 0 })
-    dailyDocs: number;
+  @Prop({ default: 0 })
+  points: number;
 
-    @Prop({ default: 0 })
-    dailyMessages: number;
+  @Prop({ default: 1 }) // Added for the weekly level-up logic
+  level: number;
 
-    @Prop({ default: 0 })
-    streak: number;
+  @Prop({ default: 0 })
+  dailyPoints: number;
 
-    @Prop({ default: 0 })
-    longestStreak: number;
+  @Prop({ default: 0 })
+  dailyDocs: number;
 
-    @Prop({ default: 0 }) // Added for the 1-day protection logic
-    streakFreezes: number;
+  @Prop({ default: 0 })
+  dailyMessages: number;
 
-    @Prop()
-    lastStreakDate: Date;
+  @Prop({ default: 0 })
+  streak: number;
 
-    @Prop({ default: 0 })
-    previousXpRank: number;
+  @Prop({ default: 0 })
+  longestStreak: number;
 
-    @Prop({ default: 0 })
-    previousStreakRank: number;
+  @Prop({ default: 0 }) // Added for the 1-day protection logic
+  streakFreezes: number;
 
-    @Prop({ type: Object, default: {} })
-    activityStreaks: Record<string, { current: number; longest: number; lastDate: Date }>;
+  @Prop()
+  lastStreakDate: Date;
 
-    @Prop({ default: 0 })
-    totalStudyMinutes: number;
+  @Prop({ default: 0 })
+  previousXpRank: number;
 
-    @Prop()
-    lastStudyDate: Date;
+  @Prop({ default: 0 })
+  previousStreakRank: number;
 
-    @Prop({ type: Object, default: { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 } })
-    studyStats: any;
+  @Prop({ type: Object, default: {} })
+  activityStreaks: Record<
+    string,
+    { current: number; longest: number; lastDate: Date }
+  >;
 
-    @Prop({ type: Object, default: { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' } })
-    pet: any;
+  @Prop({ default: 0 })
+  totalStudyMinutes: number;
 
-    // --- Subscription & Payments ---
-    @Prop({ default: 'free' })
-    subscriptionStatus: 'free' | 'premium';
+  @Prop()
+  lastStudyDate: Date;
 
-    @Prop()
-    subscriptionExpiry: Date;
+  @Prop({
+    type: Object,
+    default: { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 },
+  })
+  studyStats: any;
 
-    @Prop()
-    paystackCustomerCode: string;
+  @Prop({
+    type: Object,
+    default: { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' },
+  })
+  pet: any;
 
-    @Prop()
-    paystackSubscriptionCode: string;
+  // --- Subscription & Payments ---
+  @Prop({ default: 'free' })
+  subscriptionStatus: 'free' | 'pro' | 'premium';
 
-    // --- System & Integration ---
+  @Prop()
+  subscriptionExpiry: Date;
 
-    @Prop()
-    refreshToken: string;
+  @Prop()
+  paystackCustomerCode: string;
 
-    @Prop()
-    groqApiKey: string;
+  @Prop()
+  paystackSubscriptionCode: string;
 
-    createdAt?: Date;
-    updatedAt?: Date;
+  // --- System & Integration ---
+
+  @Prop()
+  refreshToken: string;
+
+  @Prop()
+  groqApiKey: string;
+
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

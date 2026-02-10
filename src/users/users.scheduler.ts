@@ -17,7 +17,9 @@ export class UsersScheduler {
     this.logger.log('Starting daily leaderboard rank snapshot...');
     try {
       const result = await this.usersService.updatePreviousRanks();
-      this.logger.log(`Leaderboard snapshot completed. Processed ${result.totalProcessed} users.`);
+      this.logger.log(
+        `Leaderboard snapshot completed. Processed ${result.totalProcessed} users.`,
+      );
     } catch (error) {
       this.logger.error('Failed to update leaderboard snapshots', error.stack);
     }
@@ -29,6 +31,6 @@ export class UsersScheduler {
    */
   @Cron(CronExpression.EVERY_4_HOURS)
   async handleFrequentSync() {
-      // Optional: could do more frequent syncs if needed
+    // Optional: could do more frequent syncs if needed
   }
 }

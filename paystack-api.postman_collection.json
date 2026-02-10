@@ -1,0 +1,261 @@
+{
+  "info": {
+    "name": "IZABI Paystack Integration",
+    "description": "Complete API collection for testing Paystack payment integration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set('jwt_token', jsonData.access_token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "Initialize Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set('payment_reference', jsonData.reference);",
+                  "    pm.environment.set('authorization_url', jsonData.authorization_url);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plan\": \"pro_monthly\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/initialize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "initialize"]
+            }
+          }
+        },
+        {
+          "name": "Verify Payment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/verify/{{payment_reference}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "verify", "{{payment_reference}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Payment History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/history?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "history"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Payment Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Get Single Payment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/{{payment_reference}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "{{payment_reference}}"]
+            }
+          }
+        },
+        {
+          "name": "Retry Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/retry/{{payment_reference}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "retry", "{{payment_reference}}"]
+            }
+          }
+        },
+        {
+          "name": "Cancel Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/cancel/{{payment_reference}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "cancel", "{{payment_reference}}"]
+            }
+          }
+        },
+        {
+          "name": "Process Refund",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer requested refund\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/refund/{{payment_reference}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "refund", "{{payment_reference}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Banking",
+      "item": [
+        {
+          "name": "Get Banks List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/banks/list",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "banks", "list"]
+            }
+          }
+        },
+        {
+          "name": "Verify Bank Account",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"0123456789\",\n  \"bankCode\": \"044\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/banks/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "banks", "verify"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "payment_reference",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "authorization_url",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

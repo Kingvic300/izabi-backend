@@ -2,7 +2,13 @@
  * CRITICAL: This file uses NestJS Legacy Decorators.
  * If you see "Decorators are not valid here", ensure experimentalDecorators is enabled.
  */
-import { Controller, Get, Headers, Query, UnauthorizedException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Headers,
+  Query,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditScheduler } from './audit.scheduler';
 
@@ -16,7 +22,7 @@ export class CronController {
   @Get('medium-severity')
   async triggerMediumDigest(
     @Headers('x-cron-secret') headerSecret: string,
-    @Query('secret') querySecret: string
+    @Query('secret') querySecret: string,
   ) {
     this.validateSecret(headerSecret || querySecret);
     return await this.auditScheduler.handleMediumDigest(true);
@@ -25,7 +31,7 @@ export class CronController {
   @Get('low-severity')
   async triggerLowDigest(
     @Headers('x-cron-secret') headerSecret: string,
-    @Query('secret') querySecret: string
+    @Query('secret') querySecret: string,
   ) {
     this.validateSecret(headerSecret || querySecret);
     return await this.auditScheduler.handleDailyLowDigest(true);

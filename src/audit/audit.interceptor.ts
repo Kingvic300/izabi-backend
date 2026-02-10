@@ -36,47 +36,54 @@ export class AuditInterceptor implements NestInterceptor {
       tap((data) => {
         // SUCCESS PATH - Generate a NEW unique eventId for each log attempt
         const eventId = uuidv4();
-        this.logAction(context, 'SUCCESS', eventId).catch(err => 
-          console.error('[AuditInterceptor] Success log failed', err)
+        this.logAction(context, 'SUCCESS', eventId).catch((err) =>
+          console.error('[AuditInterceptor] Success log failed', err),
         );
       }),
       catchError((error) => {
         // FAILURE PATH - Generate a NEW unique eventId for each log attempt
         const eventId = uuidv4();
-        this.logAction(context, 'FAILURE', eventId, error).catch(err =>
-          console.error('[AuditInterceptor] Failure log failed', err)
+        this.logAction(context, 'FAILURE', eventId, error).catch((err) =>
+          console.error('[AuditInterceptor] Failure log failed', err),
         );
         return throwError(() => error);
       }),
     );
   }
 
-  private async logAction(context: ExecutionContext, outcome: 'SUCCESS' | 'FAILURE', eventId: string, error?: any) {
+  private async logAction(
+    context: ExecutionContext,
+    outcome: 'SUCCESS' | 'FAILURE',
+    eventId: string,
+    error?: any,
+  ) {
     const request = context.switchToHttp().getRequest();
     const jwtUser = request.user; // JWT payload: { userId, email, role }
-    
+
     // HOW: Fetch full user details from database
     // WHY: JWT only contains userId, email, role - need firstName/lastName for audit logs
     let fullUser: UserDocument | null = null;
     if (jwtUser?.userId) {
       try {
-        fullUser = await this.userModel.findById(jwtUser.userId)
+        fullUser = (await this.userModel
+          .findById(jwtUser.userId)
           .select('firstName lastName email role plan isVerified createdAt')
           .lean()
-          .exec() as UserDocument;
+          .exec()) as UserDocument;
       } catch (e) {
         console.error('[AuditInterceptor] Failed to fetch user details', e);
       }
     }
-    
+
     // Extract ID from params if possible
     const resourceId = request.params?.id || null;
     const severity = getSeverityLevel(request.method, request.url);
 
     // HOW: Build user's full name from database record
     // WHY: Ensures "Guest (N/A)" is only shown for truly anonymous requests
-    const userName = fullUser 
-      ? `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.email
+    const userName = fullUser
+      ? `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() ||
+        fullUser.email
       : 'Guest';
     const userEmail = fullUser?.email || jwtUser?.email || 'N/A';
 
@@ -97,19 +104,20 @@ export class AuditInterceptor implements NestInterceptor {
         status: fullUser?.isVerified ? 'VERIFIED' : 'PENDING',
         signupDate: fullUser?.createdAt || new Date(),
         lastActivity: new Date(),
-        ipAddress: request.ip || request.headers['x-forwarded-for'] || '127.0.0.1',
-        userAgent: request.headers['user-agent'] || 'Unknown'
+        ipAddress:
+          request.ip || request.headers['x-forwarded-for'] || '127.0.0.1',
+        userAgent: request.headers['user-agent'] || 'Unknown',
       },
       request: {
         method: request.method,
         route: request.url,
-        resourceId
+        resourceId,
       },
       outcome,
       metadata: {
         statusCode: context.switchToHttp().getResponse().statusCode,
-        error: error?.message || null
-      }
+        error: error?.message || null,
+      },
     };
 
     // HOW: Offload logging to AuditService

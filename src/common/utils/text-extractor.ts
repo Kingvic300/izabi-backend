@@ -28,7 +28,13 @@ const cleanTextContent = (text: string): string => {
     }
   }
 
-  const endMarkers = ['references', 'bibliography', 'appendix', 'index', 'glossary'];
+  const endMarkers = [
+    'references',
+    'bibliography',
+    'appendix',
+    'index',
+    'glossary',
+  ];
 
   for (const marker of endMarkers) {
     const lastIndex = cleaned.toLowerCase().lastIndexOf(marker);
@@ -44,7 +50,7 @@ const cleanTextContent = (text: string): string => {
  * Optimized Document Ingestion Node
  */
 export const extractTextFromFile = async (
-  file: Express.Multer.File
+  file: Express.Multer.File,
 ): Promise<string> => {
   const startTime = Date.now();
   let extractedText = '';
@@ -57,13 +63,13 @@ export const extractTextFromFile = async (
     const fileSizeMB = file.buffer.length / (1024 * 1024);
     if (fileSizeMB > MAX_FILE_SIZE_MB) {
       throw new BadRequestException(
-        `File too large (${fileSizeMB.toFixed(1)}MB). Max allowed is ${MAX_FILE_SIZE_MB}MB.`
+        `File too large (${fileSizeMB.toFixed(1)}MB). Max allowed is ${MAX_FILE_SIZE_MB}MB.`,
       );
     }
 
     const mime = file.mimetype;
     console.log(
-      `[DocumentNode] Ingesting: ${file.originalname} (${mime}, ${fileSizeMB.toFixed(2)}MB)`
+      `[DocumentNode] Ingesting: ${file.originalname} (${mime}, ${fileSizeMB.toFixed(2)}MB)`,
     );
 
     if (mime === 'application/pdf') {
@@ -84,49 +90,51 @@ export const extractTextFromFile = async (
 
       const numPages = Math.min(doc.numPages, MAX_PDF_PAGES);
       let fullText = '';
-      
+
       for (let i = 1; i <= numPages; i++) {
-          const page = await doc.getPage(i);
-          const content = await page.getTextContent();
-          const strings = content.items.map((item: any) => item.str);
-          fullText += strings.join(' ') + '\n';
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const strings = content.items.map((item: any) => item.str);
+        fullText += strings.join(' ') + '\n';
       }
-      
+
       extractedText = fullText;
-      console.log(`[DocumentNode] PDF extracted: ${numPages} pages, ${extractedText.length} chars`);
-    } 
-    else if (mime === 'text/plain') {
+      console.log(
+        `[DocumentNode] PDF extracted: ${numPages} pages, ${extractedText.length} chars`,
+      );
+    } else if (mime === 'text/plain') {
       extractedText = file.buffer.toString('utf-8');
-    } 
-    else if (
-      mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    } else if (
+      mime ===
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       mime === 'application/msword'
     ) {
       const result = await mammoth.extractRawText({ buffer: file.buffer });
       extractedText = result.value;
-    } 
-    else if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/jpg') {
+    } else if (
+      mime === 'image/png' ||
+      mime === 'image/jpeg' ||
+      mime === 'image/jpg'
+    ) {
       console.log('[DocumentNode] OCR processing...');
       const worker = await createWorker('eng');
       const { data } = await worker.recognize(file.buffer);
       await worker.terminate();
       extractedText = data.text;
-    } 
-    else if (
+    } else if (
       mime.startsWith('text/') ||
       mime === 'application/json' ||
       mime === 'text/csv' ||
       mime === 'text/markdown'
     ) {
       extractedText = file.buffer.toString('utf-8');
-    } 
-    else {
+    } else {
       throw new BadRequestException(`Unsupported file type: ${mime}`);
     }
 
     if (!extractedText?.trim()) {
       throw new BadRequestException(
-        'Extraction failed: Document appears empty or non-extractable.'
+        'Extraction failed: Document appears empty or non-extractable.',
       );
     }
 
@@ -154,7 +162,7 @@ export const extractTextFromFile = async (
     }
 
     console.log(
-      `[DocumentNode] Finished in ${Date.now() - startTime}ms. Yield: ${extractedText.length} chars`
+      `[DocumentNode] Finished in ${Date.now() - startTime}ms. Yield: ${extractedText.length} chars`,
     );
 
     return extractedText;
@@ -170,7 +178,7 @@ export const extractTextFromFile = async (
  */
 export const extractTextPreview = async (
   file: Express.Multer.File,
-  maxChars = 5000
+  maxChars = 5000,
 ): Promise<string> => {
   try {
     if (!file?.buffer) return '';
@@ -188,11 +196,11 @@ export const extractTextPreview = async (
         useSystemFonts: true,
         disableFontFace: true,
       }).promise;
-      
+
       let text = '';
       // Limit to first 3 pages
       const numPages = Math.min(doc.numPages, 3);
-      
+
       for (let i = 1; i <= numPages; i++) {
         const page = await doc.getPage(i);
         const content = await page.getTextContent();

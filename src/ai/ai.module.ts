@@ -5,7 +5,10 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { Chat, ChatSchema } from './entities/chat.entity';
 import { UsersModule } from '../users/users.module';
 import { VectorService } from './vector.service';
-import { KnowledgeBase, KnowledgeBaseSchema } from './entities/knowledge-base.entity';
+import {
+  KnowledgeBase,
+  KnowledgeBaseSchema,
+} from './entities/knowledge-base.entity';
 
 @Module({
   imports: [

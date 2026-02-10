@@ -13,10 +13,10 @@ export class AppController {
   // Health check for frontend Heartbeat to prevent 404 logs
   @Get('api')
   getApiStatus() {
-    return { 
-      status: 'active', 
-      name: 'Izabi Neural API', 
-      timestamp: new Date().toISOString() 
+    return {
+      status: 'active',
+      name: 'Izabi Neural API',
+      timestamp: new Date().toISOString(),
     };
   }
 }

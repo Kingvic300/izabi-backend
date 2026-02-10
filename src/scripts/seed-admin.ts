@@ -13,13 +13,13 @@ async function seedAdmin() {
   try {
     // Check if admin already exists
     const existingAdmin = await usersService.findByEmail(adminEmail);
-    
+
     if (existingAdmin) {
       console.log('✅ Admin user already exists!');
       console.log('Email:', adminEmail);
       console.log('Role:', existingAdmin.role);
       console.log('Verified:', existingAdmin.isVerified);
-      
+
       // Update admin if needed
       if (!existingAdmin.isVerified || existingAdmin.role !== 'ADMIN') {
         await usersService.verifyUser(adminEmail);
@@ -28,7 +28,7 @@ async function seedAdmin() {
     } else {
       // Create new admin user
       const hashedPassword = await bcrypt.hash(adminPassword, 10);
-      
+
       const adminUser = await usersService.create({
         email: adminEmail,
         password: hashedPassword,

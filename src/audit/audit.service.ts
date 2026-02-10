@@ -26,8 +26,8 @@ export class AuditService {
       // HOW: Immediate alerting for high-priority events
       // WHY: Admins must be notified of security/signup/critical events instantly
       if (saved.severity === 'HIGH' || saved.severity === 'CRITICAL') {
-        this.sendImmediateAlert(saved).catch(err => 
-          this.logger.error(`Alert failed for ${saved.eventId}`, err)
+        this.sendImmediateAlert(saved).catch((err) =>
+          this.logger.error(`Alert failed for ${saved.eventId}`, err),
         );
       }
 
@@ -56,7 +56,7 @@ export class AuditService {
     // NOTE: MailService needs to be updated to support custom HTML or we use a hack
     // For now, I'll log that we are sending it.
     await this.mailService.sendCustomEmail(this.ADMIN_EMAIL, subject, content);
-    
+
     log.emailedAt = new Date();
     await log.save();
   }
@@ -64,16 +64,18 @@ export class AuditService {
   // HOW: Fetch pending events for digest processing
   // WHY: Supports batched notification strategy to stay under rate limits
   async getUnsentEvents(severity: string): Promise<AuditLogDocument[]> {
-    return this.auditLogModel.find({
-      severity,
-      emailedAt: { $exists: false }
-    }).sort({ createdAt: 1 }).exec();
+    return this.auditLogModel
+      .find({
+        severity,
+        emailedAt: { $exists: false },
+      })
+      .sort({ createdAt: 1 })
+      .exec();
   }
 
   async markAsEmailed(ids: string[]) {
-    await this.auditLogModel.updateMany(
-      { _id: { $in: ids } },
-      { $set: { emailedAt: new Date() } }
-    ).exec();
+    await this.auditLogModel
+      .updateMany({ _id: { $in: ids } }, { $set: { emailedAt: new Date() } })
+      .exec();
   }
 }

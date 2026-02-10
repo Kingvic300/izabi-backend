@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { v2 as cloudinary, UploadApiErrorResponse, UploadApiResponse } from 'cloudinary';
+import {
+  v2 as cloudinary,
+  UploadApiErrorResponse,
+  UploadApiResponse,
+} from 'cloudinary';
 import * as streamifier from 'streamifier';
 import { ConfigService } from '@nestjs/config';
 
@@ -21,7 +25,11 @@ export class CloudinaryService {
           if (result) {
             resolve(result);
           } else {
-            reject(new Error("Cloudinary upload failed: Unknown error (no result returned)"));
+            reject(
+              new Error(
+                'Cloudinary upload failed: Unknown error (no result returned)',
+              ),
+            );
           }
         },
       );
@@ -36,9 +44,11 @@ export class CloudinaryService {
     const timestamp = Math.round(new Date().getTime() / 1000);
     const secret = this.configService.get<string>('CLOUDINARY_API_SECRET');
     const folder = 'izabi_pdfs'; // Must match the folder used in frontend
-    
+
     if (!secret) {
-      throw new Error('Cloudinary configuration error: API Secret is missing in environment.');
+      throw new Error(
+        'Cloudinary configuration error: API Secret is missing in environment.',
+      );
     }
 
     // SIGNATURE MUST INCLUDE ALL PARAMS WE SEND IN BODY
@@ -48,7 +58,7 @@ export class CloudinaryService {
         timestamp: timestamp,
         folder: folder,
       },
-      secret
+      secret,
     );
 
     return {
@@ -66,13 +76,15 @@ export class CloudinaryService {
       // Example: https://res.cloudinary.com/.../image/upload/v1770672147/folder/id.pdf
       const regex = /\/upload\/(v\d+)\/(.+?)\.(\w+)$/;
       const match = originalUrl.match(regex);
-      
+
       if (match) {
         const version = match[1]; // e.g., "v1770672147"
         const publicId = match[2]; // e.g., "izabi_pdfs/uzjaz2x0o1x1rdzesv7l"
         const format = match[3]; // e.g., "pdf"
 
-        console.log(`[Cloudinary] Generating signed URL for publicId: ${publicId}, version: ${version}, format: ${format}`);
+        console.log(
+          `[Cloudinary] Generating signed URL for publicId: ${publicId}, version: ${version}, format: ${format}`,
+        );
 
         // PDFs and other documents use 'raw' resource type in Cloudinary
         const signedUrl = cloudinary.url(publicId, {
@@ -86,10 +98,10 @@ export class CloudinaryService {
 
         console.log(`[Cloudinary] Original URL: ${originalUrl}`);
         console.log(`[Cloudinary] Signed URL: ${signedUrl}`);
-        
+
         return signedUrl;
       }
-      
+
       console.warn(`[Cloudinary] Could not parse URL: ${originalUrl}`);
       return originalUrl;
     } catch (error) {
@@ -97,4 +109,4 @@ export class CloudinaryService {
       return originalUrl;
     }
   }
-} 
+}

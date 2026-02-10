@@ -1,67 +1,149 @@
 export const getOtpEmailTemplate = (otp: string): string => {
-    return `
+  const otpCells = otp
+    .split('')
+    .map(
+      (digit) => `
+        <td
+          style="
+            width: 48px;
+            height: 56px;
+            background-color: #020617;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 28px;
+            font-weight: 700;
+            color: #e5e7eb;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+              Roboto, sans-serif;
+          "
+        >
+          ${digit}
+        </td>
+        <td style="width: 8px;"></td>
+      `,
+    )
+    .join('');
+
+  return `
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Izabi Verification</title>
-    <style>
-        body { margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #020617; color: #f8fafc; }
-        .wrapper { width: 100%; table-layout: fixed; background-color: #020617; padding-bottom: 40px; }
-        .container { max-width: 600px; margin: 40px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 24px; overflow: hidden; }
-        .header { padding: 40px 30px; text-align: center; background: linear-gradient(to bottom, #1e293b, #0f172a); }
-        .logo { font-size: 28px; font-weight: 800; letter-spacing: -1px; color: #ffffff; text-decoration: none; }
-        .logo span { color: #3b82f6; }
-        .content { padding: 40px 40px; text-align: center; }
-        .title { font-size: 24px; font-weight: 700; margin-bottom: 16px; color: #ffffff; letter-spacing: -0.5px; }
-        .text { font-size: 16px; line-height: 1.6; color: #94a3b8; margin-bottom: 32px; }
-        .otp-box { margin: 32px 0; background: #1e293b; border: 2px dashed #3b82f6; border-radius: 16px; padding: 24px; display: inline-block; }
-        .otp-code { font-size: 42px; font-weight: 800; color: #3b82f6; letter-spacing: 12px; font-family: 'Courier New', monospace; margin-left: 12px; }
-        .info-card { background: rgba(59, 130, 246, 0.05); border-radius: 12px; padding: 16px; margin-top: 24px; border: 1px solid rgba(59, 130, 246, 0.1); }
-        .info-text { font-size: 13px; color: #64748b; margin: 0; }
-        .footer { padding: 32px; background-color: #020617; text-align: center; font-size: 13px; color: #475569; }
-        .footer-links { margin-top: 12px; }
-        .footer-link { color: #3b82f6; text-decoration: none; margin: 0 10px; }
-    </style>
-</head>
-<body>
-    <div class="wrapper">
-        <div class="container">
-            <div class="header">
-                <div class="logo">IZABI<span>.</span></div>
-            </div>
-            <div class="content">
-                <h1 class="title">Verify your identity</h1>
-                <p class="text">Welcome to the future of learning. Use the secure code below to finish setting up your Izabi AI account.</p>
-                
-                <div class="otp-box">
-                    <div class="otp-code">${otp}</div>
-                </div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verify your email</title>
 
-                <div class="info-card">
-                    <p class="info-text">This code expires in <strong>10 minutes</strong>.</p>
-                    <p class="info-text" style="margin-top: 8px;">If you didn't request this, you can safely ignore this email.</p>
-                </div>
-            </div>
-            <div class="footer">
-                <p>&copy; ${new Date().getFullYear()} Izabi AI. Master your curriculum with Intelligence.</p>
-                <div class="footer-links">
-                    <a href="#" class="footer-link">Support</a>
-                    <a href="#" class="footer-link">Privacy</a>
-                    <a href="#" class="footer-link">Terms</a>
-                </div>
-            </div>
-        </div>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #020617;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+          Roboto, sans-serif;
+        color: #e5e7eb;
+      }
+
+      .container {
+        max-width: 600px;
+        margin: 40px auto;
+        background-color: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 20px;
+        overflow: hidden;
+      }
+
+      .header {
+        padding: 36px;
+        text-align: center;
+        background-color: #020617;
+      }
+
+      .logo {
+        font-size: 26px;
+        font-weight: 800;
+        color: #ffffff;
+      }
+
+      .logo span {
+        color: #60a5fa;
+      }
+
+      .content {
+        padding: 40px;
+        text-align: center;
+      }
+
+      .title {
+        font-size: 22px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        color: #ffffff;
+      }
+
+      .text {
+        font-size: 15px;
+        line-height: 1.6;
+        color: #94a3b8;
+        margin-bottom: 32px;
+      }
+
+      .meta {
+        margin-top: 28px;
+        font-size: 13px;
+        color: #64748b;
+      }
+
+      .footer {
+        padding: 28px;
+        background-color: #020617;
+        text-align: center;
+        font-size: 12px;
+        color: #64748b;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="logo">IZABI<span>.</span></div>
+      </div>
+
+      <div class="content">
+        <h1 class="title">Verify your identity</h1>
+        <p class="text">
+          Use the code below to complete your sign in. This code expires in
+          10 minutes.
+        </p>
+
+        <table
+          align="center"
+          cellpadding="0"
+          cellspacing="0"
+          role="presentation"
+        >
+          <tr>
+            ${otpCells}
+          </tr>
+        </table>
+
+        <p class="meta">
+          If you did not request this code, you can safely ignore this email.
+        </p>
+      </div>
+
+      <div class="footer">
+        © ${new Date().getFullYear()} Izabi AI. All rights reserved.
+      </div>
     </div>
-</body>
+  </body>
 </html>
-    `;
+`;
 };
 
 export const getWelcomeEmailTemplate = (name: string): string => {
-    const firstName = name ? name.split(' ')[0] : 'Scholar';
-    return `
+  const firstName = name ? name.split(' ')[0] : 'Scholar';
+  return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -150,9 +232,12 @@ export const getWelcomeEmailTemplate = (name: string): string => {
     `;
 };
 
-export const getStreakFreezeTemplate = (name: string, freezesLeft: number): string => {
-    const firstName = name ? name.split(' ')[0] : 'Scholar';
-    return `
+export const getStreakFreezeTemplate = (
+  name: string,
+  freezesLeft: number,
+): string => {
+  const firstName = name ? name.split(' ')[0] : 'Scholar';
+  return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -208,8 +293,8 @@ export const getStreakFreezeTemplate = (name: string, freezesLeft: number): stri
 };
 
 export const getLiveAnnouncementTemplate = (name: string): string => {
-    const firstName = name ? name.split(' ')[0] : 'Scholar';
-    return `
+  const firstName = name ? name.split(' ')[0] : 'Scholar';
+  return `
 <!DOCTYPE html>
 <html lang="en">
 <head>

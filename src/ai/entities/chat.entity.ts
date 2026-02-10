@@ -9,12 +9,14 @@ export class Chat {
   userId: string;
 
   @Prop({
-    type: [{
-      role: { type: String, enum: ['user', 'assistant'], required: true },
-      content: { type: String, required: true },
-      timestamp: { type: Date, default: Date.now }
-    }],
-    default: []
+    type: [
+      {
+        role: { type: String, enum: ['user', 'assistant'], required: true },
+        content: { type: String, required: true },
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
   })
   messages: { role: string; content: string; timestamp: Date }[];
 }

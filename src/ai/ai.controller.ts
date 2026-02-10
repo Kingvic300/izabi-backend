@@ -1,4 +1,16 @@
-import { Controller, Post, Body, Sse, MessageEvent, Query, Get, BadRequestException, InternalServerErrorException, UseGuards, Req } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Sse,
+  MessageEvent,
+  Query,
+  Get,
+  BadRequestException,
+  InternalServerErrorException,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
 import { AiService } from './ai.service';
 import { UsersService } from '../users/users.service';
 import { Observable, from } from 'rxjs';
@@ -19,7 +31,9 @@ export class AiController {
       const history = await this.aiService.getChatHistory(userId);
       return { success: true, data: history };
     } catch (error: any) {
-      throw new BadRequestException(error.message || 'Failed to fetch chat history');
+      throw new BadRequestException(
+        error.message || 'Failed to fetch chat history',
+      );
     }
   }
 
@@ -31,7 +45,9 @@ export class AiController {
       await this.aiService.clearChatHistory(userId);
       return { success: true, message: 'Chat history cleared' };
     } catch (error: any) {
-      throw new BadRequestException(error.message || 'Failed to clear chat history');
+      throw new BadRequestException(
+        error.message || 'Failed to clear chat history',
+      );
     }
   }
 
@@ -47,28 +63,35 @@ export class AiController {
       const response = await this.aiService.getResponse(message, userId);
       await this.aiService.saveMessage(userId, 'assistant', response);
       await this.usersService.incrementActivityCount(userId, 'dailyMessages');
-      
+
       return { success: true, response };
     } catch (error: any) {
       console.error('[AiController] Chat error:', error);
-      throw new InternalServerErrorException(error.message || 'AI failed to respond');
+      throw new InternalServerErrorException(
+        error.message || 'AI failed to respond',
+      );
     }
   }
 
   @UseGuards(JwtAuthGuard)
   @Sse('stream')
-  stream(@Query('message') message: string, @Req() req: any): Observable<MessageEvent> {
+  stream(
+    @Query('message') message: string,
+    @Req() req: any,
+  ): Observable<MessageEvent> {
     const userId = req.user.userId;
     const userIdToUse = userId || 'default-user';
-    
+
     // We'll wrap the stream to save messages on completion
-    return new Observable(observer => {
+    return new Observable((observer) => {
       let fullResponse = '';
-      
+
       // Save user message immediately
       this.aiService.saveMessage(userIdToUse, 'user', message);
-      
-      const stream = from(this.aiService.getResponseStream(message, userIdToUse));
+
+      const stream = from(
+        this.aiService.getResponseStream(message, userIdToUse),
+      );
       const subscription = stream.subscribe({
         next: (event: any) => {
           if (event.data === '[DONE]') {
@@ -86,7 +109,7 @@ export class AiController {
         error: (err) => observer.error(err),
         complete: () => observer.complete(),
       });
-      
+
       return () => subscription.unsubscribe();
     });
   }

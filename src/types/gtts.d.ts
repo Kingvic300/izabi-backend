@@ -6,4 +6,4 @@ declare module 'gtts' {
   }
   export = gTTS;
 }
-an
+an;

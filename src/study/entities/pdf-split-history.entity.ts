@@ -37,4 +37,5 @@ export class PDFSplitHistory {
   metadata: any;
 }
 
-export const PDFSplitHistorySchema = SchemaFactory.createForClass(PDFSplitHistory);
+export const PDFSplitHistorySchema =
+  SchemaFactory.createForClass(PDFSplitHistory);

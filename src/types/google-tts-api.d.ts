@@ -3,17 +3,14 @@ declare module 'google-tts-api' {
     lang?: string;
     slow?: boolean;
     host?: string;
-    splitPunct?: string;   // ← add this
+    splitPunct?: string; // ← add this
   }
 
-  function getAudioUrl(
-    text: string,
-    options?: TTSOptions
-  ): string;
+  function getAudioUrl(text: string, options?: TTSOptions): string;
 
   function getAllAudioUrls(
     text: string,
-    options?: TTSOptions
+    options?: TTSOptions,
   ): Array<{
     url: string;
     shortText: string;

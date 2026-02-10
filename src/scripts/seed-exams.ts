@@ -12,18 +12,27 @@ const seedData = async () => {
       year: 2024,
       questions: [
         {
-          question: 'Which of the following is the unit of transmission of hereditary characters?',
+          question:
+            'Which of the following is the unit of transmission of hereditary characters?',
           options: ['Gene', 'Chromosome', 'Nucleus', 'Zygote'],
           answer: 'Gene',
-          explanation: 'Genes are the functional units of heredity as they are made up of DNA.'
+          explanation:
+            'Genes are the functional units of heredity as they are made up of DNA.',
         },
         {
-          question: 'The process by which plants manufacture their food is called?',
-          options: ['Respiration', 'Photosynthesis', 'Transpiration', 'Excretion'],
+          question:
+            'The process by which plants manufacture their food is called?',
+          options: [
+            'Respiration',
+            'Photosynthesis',
+            'Transpiration',
+            'Excretion',
+          ],
           answer: 'Photosynthesis',
-          explanation: 'Photosynthesis is the process by which green plants use sunlight to synthesize nutrients from carbon dioxide and water.'
-        }
-      ]
+          explanation:
+            'Photosynthesis is the process by which green plants use sunlight to synthesize nutrients from carbon dioxide and water.',
+        },
+      ],
     },
     {
       title: 'UNILAG CSC 101 Past Questions',
@@ -35,12 +44,18 @@ const seedData = async () => {
       questions: [
         {
           question: 'What is the primary function of an Operating System?',
-          options: ['Resource Management', 'Word Processing', 'Internet Browsing', 'Email'],
+          options: [
+            'Resource Management',
+            'Word Processing',
+            'Internet Browsing',
+            'Email',
+          ],
           answer: 'Resource Management',
-          explanation: 'The OS manages hardware resources like CPU, memory, and storage.'
-        }
-      ]
-    }
+          explanation:
+            'The OS manages hardware resources like CPU, memory, and storage.',
+        },
+      ],
+    },
   ];
 
   for (const exam of exams) {
