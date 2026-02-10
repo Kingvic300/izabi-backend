@@ -121,6 +121,10 @@ export class StudyService {
         config: any
     ) {
         try {
+            // Stage 1: Initial Sync
+            (history.metadata as any).progress = 10;
+            await (history as any).save();
+
             const [responseText, uploadResult] = await Promise.all([
                 this.aiService.generateFromFiles(config.prompt, file, history.userId, history._id.toString()),
                 this.cloudinaryService.uploadFile(file).catch(err => {
@@ -129,16 +133,19 @@ export class StudyService {
                 }),
             ]);
 
+            // Stage 2: Processing Complete
+            (history.metadata as any).progress = 85;
             if (uploadResult && (uploadResult as any).secure_url) {
                 history.fileUrl = (uploadResult as any).secure_url;
             }
+            await (history as any).save();
 
             await this.finalizeMaterial(history, responseText, history.type, config);
         } catch (error: any) {
             console.error(`[StudyService] Direct BG processing failed for ${history._id}:`, error);
             history.status = 'FAILED';
             (history.metadata as any).error = error.message;
-            await history.save();
+            await (history as any).save();
         }
     }
 
@@ -200,13 +207,20 @@ export class StudyService {
         config: any
     ) {
         try {
+            (history.metadata as any).progress = 20;
+            await (history as any).save();
+
             const responseText = await this.aiService.processExtractedText(config.prompt, text, history.userId);
+            
+            (history.metadata as any).progress = 80;
+            await (history as any).save();
+
             await this.finalizeMaterial(history, responseText, history.type, config);
         } catch (error: any) {
             console.error(`[StudyService] Background text processing failed:`, error);
             history.status = 'FAILED';
             (history.metadata as any).error = error.message;
-            await history.save();
+            await (history as any).save();
         }
     }
 
@@ -250,16 +264,11 @@ export class StudyService {
         else (history as any).summary = parsedData;
 
         history.status = 'COMPLETED';
-        history.metadata = {
-            ...history.metadata,
-            charCount: responseText.length,
-            finalizedAt: new Date().toISOString()
-        };
+        (history.metadata as any).progress = 100;
+        (history.metadata as any).completedAt = new Date().toISOString();
 
-        await Promise.all([
-            history.save(),
-            this.usersService.addPoints(history.userId, config.points, config.actionType)
-        ]);
+        await (history as any).save();
+        await this.usersService.addPoints(history.userId, config.points, config.actionType);
     }
 
     async generateMaterial(
