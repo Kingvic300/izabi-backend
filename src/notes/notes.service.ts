@@ -5,40 +5,44 @@ import { Note, NoteDocument } from './entities/note.entity';
 
 @Injectable()
 export class NotesService {
-  constructor(@InjectModel(Note.name) private noteModel: Model<NoteDocument>) {}
+    constructor(
+        @InjectModel(Note.name) private noteModel: Model<NoteDocument>,
+    ) {}
 
-  async findAll(userId: string): Promise<NoteDocument[]> {
-    return this.noteModel.find({ userId }).sort({ updatedAt: -1 }).exec();
-  }
+    async findAll(userId: string): Promise<NoteDocument[]> {
+        return this.noteModel.find({ userId }).sort({ updatedAt: -1 }).exec();
+    }
 
-  async create(userId: string, data: any): Promise<NoteDocument> {
-    const note = new this.noteModel({ ...data, userId });
-    return note.save();
-  }
+    async create(userId: string, data: any): Promise<NoteDocument> {
+        const note = new this.noteModel({ ...data, userId });
+        return note.save();
+    }
 
-  async update(id: string, userId: string, data: any): Promise<NoteDocument> {
-    const note = await this.noteModel
-      .findOneAndUpdate({ _id: id, userId }, data, { new: true })
-      .exec();
-    if (!note) throw new NotFoundException('Note not found');
-    return note;
-  }
+    async update(id: string, userId: string, data: any): Promise<NoteDocument> {
+        const note = await this.noteModel
+            .findOneAndUpdate({ _id: id, userId }, data, { new: true })
+            .exec();
+        if (!note) throw new NotFoundException('Note not found');
+        return note;
+    }
 
-  async remove(id: string, userId: string): Promise<void> {
-    const result = await this.noteModel.deleteOne({ _id: id, userId }).exec();
-    if (result.deletedCount === 0)
-      throw new NotFoundException('Note not found');
-  }
-  async countAll(): Promise<number> {
-    return this.noteModel.countDocuments().exec();
-  }
+    async remove(id: string, userId: string): Promise<void> {
+        const result = await this.noteModel
+            .deleteOne({ _id: id, userId })
+            .exec();
+        if (result.deletedCount === 0)
+            throw new NotFoundException('Note not found');
+    }
+    async countAll(): Promise<number> {
+        return this.noteModel.countDocuments().exec();
+    }
 
-  async findLatestGlobal(limit: number = 10): Promise<NoteDocument[]> {
-    return this.noteModel
-      .find()
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate('userId', 'firstName lastName email')
-      .exec();
-  }
+    async findLatestGlobal(limit: number = 10): Promise<NoteDocument[]> {
+        return this.noteModel
+            .find()
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .populate('userId', 'firstName lastName email')
+            .exec();
+    }
 }

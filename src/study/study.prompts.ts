@@ -7,7 +7,7 @@
  */
 
 export const STUDY_PROMPTS = {
-  SUMMARY: `Analyze this document as an expert Academic Strategist. Generate a summary optimized for exam preparation.
+    SUMMARY: `Analyze this document as an expert Academic Strategist. Generate a summary optimized for exam preparation.
 RULES:
 - Use strict source grounding.
 - Identify "High-Yield" topics likely to appear in JAMB, WAEC, or University exams.
@@ -18,16 +18,16 @@ STRUCTURE:
 - **EXAM-READY DATA**: 5 verbatim facts, dates, or formulas critical for retention.
 FORMAT: Return in clean Markdown.`,
 
-  FLASHCARDS: `Transform this material into exactly 10 high-recall Flashcards (or fewer if content is limited).
+    FLASHCARDS: `Transform this material into exactly 10 high-recall Flashcards (or fewer if content is limited).
 RULES:
 - No semantic repetition. 
 - Front must be a question or concept; Back must be a concise resolution.
 RETURN ONLY a JSON array:
 [{"front": "string", "back": "string"}]`,
 
-  QUIZ: (
-    count: number,
-  ) => `Generate exactly ${count} Practice Questions based ONLY on the provided context.
+    QUIZ: (
+        count: number,
+    ) => `Generate exactly ${count} Practice Questions based ONLY on the provided context.
 RULES:
 - "multiple_choice" must have exactly 4 options.
 - "short_answer" must have a null options array.
@@ -43,23 +43,23 @@ RETURN ONLY a JSON array:
     }
 ]`,
 
-  STUDY_GUIDE: `Act as a Curriculum Designer. Create a structured Study Guide from this material.
+    STUDY_GUIDE: `Act as a Curriculum Designer. Create a structured Study Guide from this material.
 RULES:
 - Optimize for "Deep Work" sessions.
 - Use Markdown headers (#, ##).
 - Bold technical terms.
 - End with a "5-Minute Cheat Sheet" containing the most important formulas or definitions.`,
 
-  PIDGIN_TRANSLATION: (
-    text: string,
-  ) => `Rewrite the following text in clear West African Pidgin English.
+    PIDGIN_TRANSLATION: (
+        text: string,
+    ) => `Rewrite the following text in clear West African Pidgin English.
 RULES:
 - TECHNICAL PRESERVATION: Do NOT translate technical terms, names, or formulas (e.g., keep "Photosynthesis", "Pythagoras", "Ohm's Law" exactly as they are).
 - Use standard Pidgin grammar used in Nigeria/Ghana.
 - Keep the tone academic but accessible.
 TEXT: ${text}`,
 
-  QUICK_TEST: `Generate a strict 7-question "Quick Test" from the context provided.
+    QUICK_TEST: `Generate a strict 7-question "Quick Test" from the context provided.
 CONSTRAINTS:
 1. Exactly 7 questions (4 Multiple Choice, 2 True/False, 1 Short Answer).
 2. Sequential IDs: q1 through q7.

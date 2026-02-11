@@ -288,24 +288,28 @@
 ## Key Features
 
 ### Security Layers
+
 1. **JWT Authentication** - All endpoints protected
 2. **Webhook Signature** - HMAC SHA512 verification
 3. **Input Validation** - DTO validation on all inputs
 4. **Environment Secrets** - API keys in .env
 
 ### Error Handling
+
 - Custom exceptions for different scenarios
 - Centralized error handler
 - Detailed error logging
 - User-friendly error messages
 
 ### Audit Trail
+
 - Every payment action logged
 - Webhook events recorded
 - User activity tracking
 - Timestamp on all records
 
 ### Scalability
+
 - Paginated endpoints
 - Efficient database queries
 - Indexed fields

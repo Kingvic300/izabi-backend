@@ -9,13 +9,13 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshJwtStrategy } from './strategies/refresh-jwt.strategy';
 
 @Module({
-  imports: [
-    forwardRef(() => UsersModule),
-    PassportModule,
-    JwtModule.register({}),
-  ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, RefreshJwtStrategy],
-  exports: [AuthService],
+    imports: [
+        forwardRef(() => UsersModule),
+        PassportModule,
+        JwtModule.register({}),
+    ],
+    controllers: [AuthController],
+    providers: [AuthService, JwtStrategy, RefreshJwtStrategy],
+    exports: [AuthService],
 })
 export class AuthModule {}

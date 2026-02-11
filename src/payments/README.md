@@ -33,11 +33,13 @@ PAYSTACK_CALLBACK_URL=https://yourdomain.com/payment/verify
 Initialize a new payment transaction.
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Request Body:**
+
 ```json
 {
   "plan": "pro_monthly" | "premium_monthly"
@@ -45,10 +47,11 @@ Authorization: Bearer {jwt_token}
 ```
 
 **Response:**
+
 ```json
 {
-  "authorization_url": "https://checkout.paystack.com/...",
-  "reference": "xyz123abc"
+    "authorization_url": "https://checkout.paystack.com/...",
+    "reference": "xyz123abc"
 }
 ```
 
@@ -59,15 +62,17 @@ Authorization: Bearer {jwt_token}
 Verify a payment transaction.
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Response:**
+
 ```json
 {
-  "success": true,
-  "reference": "xyz123abc"
+    "success": true,
+    "reference": "xyz123abc"
 }
 ```
 
@@ -78,15 +83,18 @@ Authorization: Bearer {jwt_token}
 Get paginated payment history for the authenticated user.
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Query Parameters:**
+
 - `page` (optional, default: 1)
 - `limit` (optional, default: 10)
 
 **Response:**
+
 ```json
 {
   "payments": [...],
@@ -103,18 +111,18 @@ Authorization: Bearer {jwt_token}
 Get payment statistics for the authenticated user.
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Response:**
+
 ```json
 {
-  "stats": [
-    { "_id": "success", "count": 10, "totalAmount": 999900 }
-  ],
-  "totalSpent": 999900,
-  "totalTransactions": 10
+    "stats": [{ "_id": "success", "count": 10, "totalAmount": 999900 }],
+    "totalSpent": 999900,
+    "totalTransactions": 10
 }
 ```
 
@@ -125,15 +133,17 @@ Authorization: Bearer {jwt_token}
 Retry a failed payment.
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Response:**
+
 ```json
 {
-  "authorization_url": "https://checkout.paystack.com/...",
-  "reference": "new_xyz123abc"
+    "authorization_url": "https://checkout.paystack.com/...",
+    "reference": "new_xyz123abc"
 }
 ```
 
@@ -144,15 +154,17 @@ Authorization: Bearer {jwt_token}
 Cancel a pending payment.
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Response:**
+
 ```json
 {
-  "success": true,
-  "message": "Payment cancelled successfully"
+    "success": true,
+    "message": "Payment cancelled successfully"
 }
 ```
 
@@ -163,18 +175,21 @@ Authorization: Bearer {jwt_token}
 Process a refund (admin only).
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Request Body:**
+
 ```json
 {
-  "reason": "Customer requested refund"
+    "reason": "Customer requested refund"
 }
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -190,19 +205,21 @@ Authorization: Bearer {jwt_token}
 Get list of Nigerian banks.
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Response:**
+
 ```json
 {
-  "data": [
-    {
-      "name": "Access Bank",
-      "code": "044"
-    }
-  ]
+    "data": [
+        {
+            "name": "Access Bank",
+            "code": "044"
+        }
+    ]
 }
 ```
 
@@ -213,23 +230,26 @@ Authorization: Bearer {jwt_token}
 Verify a bank account number.
 
 **Headers:**
+
 ```
 Authorization: Bearer {jwt_token}
 ```
 
 **Request Body:**
+
 ```json
 {
-  "accountNumber": "0123456789",
-  "bankCode": "044"
+    "accountNumber": "0123456789",
+    "bankCode": "044"
 }
 ```
 
 **Response:**
+
 ```json
 {
-  "account_name": "John Doe",
-  "account_number": "0123456789"
+    "account_name": "John Doe",
+    "account_number": "0123456789"
 }
 ```
 
@@ -240,6 +260,7 @@ Authorization: Bearer {jwt_token}
 Receives Paystack webhook notifications.
 
 **Headers:**
+
 ```
 x-paystack-signature: {webhook_signature}
 ```
@@ -278,35 +299,35 @@ The system supports two plans:
 ```typescript
 // Initialize payment
 const initializePayment = async (plan: 'pro_monthly' | 'premium_monthly') => {
-  const response = await fetch('/api/payments/initialize', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ plan })
-  });
-  
-  const data = await response.json();
-  
-  // Redirect to Paystack checkout
-  window.location.href = data.authorization_url;
+    const response = await fetch('/api/payments/initialize', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ plan }),
+    });
+
+    const data = await response.json();
+
+    // Redirect to Paystack checkout
+    window.location.href = data.authorization_url;
 };
 
 // Verify payment (call this on your callback page)
 const verifyPayment = async (reference: string) => {
-  const response = await fetch(`/api/payments/verify/${reference}`, {
-    headers: {
-      'Authorization': `Bearer ${token}`
+    const response = await fetch(`/api/payments/verify/${reference}`, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+        // Payment successful, redirect to dashboard
+        router.push('/dashboard');
     }
-  });
-  
-  const data = await response.json();
-  
-  if (data.success) {
-    // Payment successful, redirect to dashboard
-    router.push('/dashboard');
-  }
 };
 ```
 
@@ -316,13 +337,14 @@ All endpoints return standard error responses:
 
 ```json
 {
-  "statusCode": 400,
-  "message": "Error description",
-  "error": "Bad Request"
+    "statusCode": 400,
+    "message": "Error description",
+    "error": "Bad Request"
 }
 ```
 
 Common error codes:
+
 - `400` - Bad Request (invalid input)
 - `401` - Unauthorized (missing or invalid token)
 - `404` - Not Found (payment not found)
@@ -331,6 +353,7 @@ Common error codes:
 ## Testing
 
 Use Paystack test keys for development:
+
 - Test cards: https://paystack.com/docs/payments/test-payments
 - Sample card: 4084084084084081 (success)
 
@@ -344,12 +367,14 @@ Use Paystack test keys for development:
 ## Audit Logging
 
 All payment activities are logged for audit purposes:
+
 - Payment initialization
 - Verification attempts
 - Webhook events
 - Refunds
 
 Query logs using:
+
 ```typescript
 paymentLoggerService.getPaymentLogs(reference);
 paymentLoggerService.getUserLogs(userId);

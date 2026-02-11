@@ -1,338 +1,326 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class PaystackService {
-  private readonly baseUrl = 'https://api.paystack.co';
-  private readonly secretKey: string;
+    private readonly baseUrl = 'https://api.paystack.co';
+    private readonly secretKey: string;
 
-  constructor(private configService: ConfigService) {
-    this.secretKey =
-      this.configService.get<string>('PAYSTACK_SECRET_KEY') || '';
-    if (!this.secretKey) {
-      console.warn(
-        '[PaystackService] Warning: PAYSTACK_SECRET_KEY is not defined in environment variables',
-      );
+    constructor(private readonly configService: ConfigService) {
+        this.secretKey =
+            this.configService.get<string>('PAYSTACK_SECRET_KEY') ?? '';
+
+        if (!this.secretKey) {
+            console.warn('[PaystackService] PAYSTACK_SECRET_KEY is not set');
+        }
     }
-  }
 
-  private get headers() {
-    return {
-      Authorization: `Bearer ${this.secretKey}`,
-      'Content-Type': 'application/json',
-    };
-  }
-
-  async initializeTransaction(email: string, amount: number, metadata: any, plan?: string) {
-    try {
-      const payload: any = {
-        email,
-        amount: amount * 100, // Paystack expects amount in kobo/cents
-        metadata,
-        callback_url:
-          this.configService.get<string>('PAYSTACK_CALLBACK_URL') ||
-          'https://izabi.onrender.com/payment/verify',
-      };
-
-      if (plan) {
-        payload.plan = plan;
-      }
-
-      const response = await axios.post(
-        `${this.baseUrl}/transaction/initialize`,
-        payload,
-        { headers: this.headers },
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Initialize Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException(
-        'Failed to initialize Paystack transaction',
-      );
+    private get headers() {
+        return {
+            Authorization: `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+        };
     }
-  }
 
-  async verifyTransaction(reference: string) {
-    try {
-      const response = await axios.get(
-        `${this.baseUrl}/transaction/verify/${reference}`,
-        { headers: this.headers },
-      );
+    async initializeTransaction(
+        email: string,
+        amount: number,
+        metadata: any,
+        plan?: string,
+    ) {
+        try {
+            const payload: Record<string, any> = {
+                email,
+                amount: amount * 100,
+                metadata,
+                callback_url:
+                    this.configService.get<string>('PAYSTACK_CALLBACK_URL') ??
+                    'https://izabi.onrender.com/payment/verify',
+            };
 
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Verify Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException(
-        'Failed to verify Paystack transaction',
-      );
+            if (plan) {
+                payload.plan = plan;
+            }
+
+            const response = await axios.post(
+                `${this.baseUrl}/transaction/initialize`,
+                payload,
+                { headers: this.headers },
+            );
+
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Initialize Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException(
+                'Failed to initialize Paystack transaction',
+            );
+        }
     }
-  }
 
-  /**
-   * Get list of Nigerian banks
-   */
-  async getBanks() {
-    try {
-      const response = await axios.get(`${this.baseUrl}/bank?country=nigeria`, {
-        headers: this.headers,
-      });
+    async verifyTransaction(reference: string) {
+        try {
+            const response = await axios.get(
+                `${this.baseUrl}/transaction/verify/${reference}`,
+                { headers: this.headers },
+            );
 
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Get Banks Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException('Failed to fetch banks list');
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Verify Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException(
+                'Failed to verify Paystack transaction',
+            );
+        }
     }
-  }
 
-  /**
-   * Verify account number
-   */
-  async verifyAccountNumber(
-    accountNumber: string,
-    bankCode: string,
-  ): Promise<{ account_name: string; account_number: string }> {
-    try {
-      const response = await axios.get(
-        `${this.baseUrl}/bank/resolve?account_number=${accountNumber}&bank_code=${bankCode}`,
-        { headers: this.headers },
-      );
+    async getBanks() {
+        try {
+            const response = await axios.get(
+                `${this.baseUrl}/bank?country=nigeria`,
+                { headers: this.headers },
+            );
 
-      return response.data.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Verify Account Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException(
-        'Failed to verify account number',
-      );
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Get Banks Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException(
+                'Failed to fetch banks list',
+            );
+        }
     }
-  }
 
-  /**
-   * Process a refund
-   */
-  async refundTransaction(
-    transactionReference: string,
-    amount?: number,
-    merchantNote?: string,
-  ) {
-    try {
-      const payload: any = {
-        transaction: transactionReference,
-      };
+    async verifyAccountNumber(
+        accountNumber: string,
+        bankCode: string,
+    ): Promise<{
+        account_name: string;
+        account_number: string;
+    }> {
+        try {
+            const response = await axios.get(`${this.baseUrl}/bank/resolve`, {
+                headers: this.headers,
+                params: {
+                    account_number: accountNumber,
+                    bank_code: bankCode,
+                },
+            });
 
-      if (amount) {
-        payload.amount = amount * 100; // Convert to kobo
-      }
+            return response.data.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Verify Account Error:',
+                error.response?.data || error.message,
+            );
 
-      if (merchantNote) {
-        payload.merchant_note = merchantNote;
-      }
-
-      const response = await axios.post(
-        `${this.baseUrl}/refund`,
-        payload,
-        { headers: this.headers },
-      );
-
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Refund Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException('Failed to process refund');
+            throw new InternalServerErrorException(
+                'Failed to verify account number',
+            );
+        }
     }
-  }
 
-  /**
-   * Get customer by customer code
-   */
-  async getCustomer(customerCode: string) {
-    try {
-      const response = await axios.get(
-        `${this.baseUrl}/customer/${customerCode}`,
-        { headers: this.headers },
-      );
+    async refundTransaction(
+        transactionReference: string,
+        amount?: number,
+        merchantNote?: string,
+    ) {
+        try {
+            const payload: Record<string, any> = {
+                transaction: transactionReference,
+            };
 
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Get Customer Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException('Failed to fetch customer');
+            if (amount) {
+                payload.amount = amount * 100;
+            }
+
+            if (merchantNote) {
+                payload.merchant_note = merchantNote;
+            }
+
+            const response = await axios.post(
+                `${this.baseUrl}/refund`,
+                payload,
+                { headers: this.headers },
+            );
+
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Refund Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException('Failed to process refund');
+        }
     }
-  }
 
-  /**
-   * List all transactions with pagination
-   */
-  async listTransactions(page = 1, perPage = 50) {
-    try {
-      const response = await axios.get(
-        `${this.baseUrl}/transaction?page=${page}&perPage=${perPage}`,
-        { headers: this.headers },
-      );
+    async getCustomer(customerCode: string) {
+        try {
+            const response = await axios.get(
+                `${this.baseUrl}/customer/${customerCode}`,
+                { headers: this.headers },
+            );
 
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] List Transactions Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException(
-        'Failed to fetch transactions',
-      );
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Get Customer Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException('Failed to fetch customer');
+        }
     }
-  }
 
-  /**
-   * Create subscription plan on Paystack
-   */
-  async createPlan(
-    name: string,
-    amount: number,
-    interval: 'daily' | 'weekly' | 'monthly' | 'annually',
-    description?: string,
-  ) {
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/plan`,
-        {
-          name,
-          amount: amount * 100, // Convert to kobo
-          interval,
-          description,
-        },
-        { headers: this.headers },
-      );
+    async listTransactions(page = 1, perPage = 50) {
+        try {
+            const response = await axios.get(`${this.baseUrl}/transaction`, {
+                headers: this.headers,
+                params: { page, perPage },
+            });
 
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Create Plan Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException('Failed to create plan');
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] List Transactions Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException(
+                'Failed to fetch transactions',
+            );
+        }
     }
-  }
 
-  /**
-   * Subscribe customer to a plan
-   */
-  async subscribeCustomer(
-    customerEmail: string,
-    planCode: string,
-    authorization?: string,
-  ) {
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/subscription`,
-        {
-          customer: customerEmail,
-          plan: planCode,
-          authorization,
-        },
-        { headers: this.headers },
-      );
+    async createPlan(
+        name: string,
+        amount: number,
+        interval: 'daily' | 'weekly' | 'monthly' | 'annually',
+        description?: string,
+    ) {
+        try {
+            const response = await axios.post(
+                `${this.baseUrl}/plan`,
+                {
+                    name,
+                    amount: amount * 100,
+                    interval,
+                    description,
+                },
+                { headers: this.headers },
+            );
 
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Subscribe Customer Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException(
-        'Failed to subscribe customer',
-      );
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Create Plan Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException('Failed to create plan');
+        }
     }
-  }
 
-  /**
-   * Cancel a subscription
-   */
-  async cancelSubscription(
-    subscriptionCode: string,
-    emailToken?: string,
-  ) {
-    try {
-      // If we don't have the token, we can just use the subscription's disable endpoint
-      // documented at https://paystack.com/docs/api/subscription/#disable
-      // Wait, Paystack actually requires code and token for the user to disable it themselves,
-      // but for us (merchant), sometimes the code is enough if we use the backend API.
-      // Actually, looking at docs, it says "code" and "token" are both required.
-      const payload: any = { code: subscriptionCode };
-      if (emailToken) payload.token = emailToken;
+    async subscribeCustomer(
+        customerEmail: string,
+        planCode: string,
+        authorization?: string,
+    ) {
+        try {
+            const response = await axios.post(
+                `${this.baseUrl}/subscription`,
+                {
+                    customer: customerEmail,
+                    plan: planCode,
+                    authorization,
+                },
+                { headers: this.headers },
+            );
 
-      const response = await axios.post(
-        `${this.baseUrl}/subscription/disable`,
-        payload,
-        { headers: this.headers },
-      );
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Subscribe Customer Error:',
+                error.response?.data || error.message,
+            );
 
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Cancel Subscription Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException(
-        'Failed to cancel subscription',
-      );
+            throw new InternalServerErrorException(
+                'Failed to subscribe customer',
+            );
+        }
     }
-  }
 
-  /**
-   * Fetch subscription details
-   */
-  async fetchSubscription(subscriptionCode: string) {
-    try {
-      const response = await axios.get(
-        `${this.baseUrl}/subscription/${subscriptionCode}`,
-        { headers: this.headers },
-      );
+    async cancelSubscription(subscriptionCode: string, emailToken: string) {
+        try {
+            const response = await axios.post(
+                `${this.baseUrl}/subscription/disable`,
+                {
+                    code: subscriptionCode,
+                    token: emailToken,
+                },
+                { headers: this.headers },
+            );
 
-      return response.data;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Fetch Subscription Error:',
-        error.response?.data || error.message,
-      );
-      throw new InternalServerErrorException('Failed to fetch subscription');
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Cancel Subscription Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException(
+                'Failed to cancel subscription',
+            );
+        }
     }
-  }
 
-  /**
-   * Verify webhook signature
-   */
-  verifyWebhookSignature(payload: string, signature: string): boolean {
-    try {
-      const crypto = require('crypto');
-      const hash = crypto
-        .createHmac('sha512', this.secretKey)
-        .update(payload)
-        .digest('hex');
+    async fetchSubscription(subscriptionCode: string) {
+        try {
+            const response = await axios.get(
+                `${this.baseUrl}/subscription/${subscriptionCode}`,
+                { headers: this.headers },
+            );
 
-      return hash === signature;
-    } catch (error) {
-      console.error(
-        '[PaystackService] Webhook Verification Error:',
-        error,
-      );
-      return false;
+            return response.data;
+        } catch (error: any) {
+            console.error(
+                '[PaystackService] Fetch Subscription Error:',
+                error.response?.data || error.message,
+            );
+
+            throw new InternalServerErrorException(
+                'Failed to fetch subscription',
+            );
+        }
     }
-  }
+
+    verifyWebhookSignature(payload: string, signature: string): boolean {
+        try {
+            const hash = crypto
+                .createHmac('sha512', this.secretKey)
+                .update(payload)
+                .digest('hex');
+
+            return hash === signature;
+        } catch (error) {
+            console.error(
+                '[PaystackService] Webhook Verification Error:',
+                error,
+            );
+            return false;
+        }
+    }
 }

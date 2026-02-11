@@ -1,8 +1,8 @@
 export const getOtpEmailTemplate = (otp: string): string => {
-  const otpCells = otp
-    .split('')
-    .map(
-      (digit) => `
+    const otpCells = otp
+        .split('')
+        .map(
+            (digit) => `
         <td
           style="
             width: 48px;
@@ -22,10 +22,10 @@ export const getOtpEmailTemplate = (otp: string): string => {
         </td>
         <td style="width: 8px;"></td>
       `,
-    )
-    .join('');
+        )
+        .join('');
 
-  return `
+    return `
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -142,8 +142,8 @@ export const getOtpEmailTemplate = (otp: string): string => {
 };
 
 export const getWelcomeEmailTemplate = (name: string): string => {
-  const firstName = name ? name.split(' ')[0] : 'Scholar';
-  return `
+    const firstName = name ? name.split(' ')[0] : 'Scholar';
+    return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -233,11 +233,11 @@ export const getWelcomeEmailTemplate = (name: string): string => {
 };
 
 export const getStreakFreezeTemplate = (
-  name: string,
-  freezesLeft: number,
+    name: string,
+    freezesLeft: number,
 ): string => {
-  const firstName = name ? name.split(' ')[0] : 'Scholar';
-  return `
+    const firstName = name ? name.split(' ')[0] : 'Scholar';
+    return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -293,8 +293,8 @@ export const getStreakFreezeTemplate = (
 };
 
 export const getLiveAnnouncementTemplate = (name: string): string => {
-  const firstName = name ? name.split(' ')[0] : 'Scholar';
-  return `
+    const firstName = name ? name.split(' ')[0] : 'Scholar';
+    return `
 <!DOCTYPE html>
 <html lang="en">
 <head>

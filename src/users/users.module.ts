@@ -14,15 +14,15 @@ import { MailModule } from '../mail/mail.module';
 import { UsersScheduler } from './users.scheduler';
 
 @Module({
-  imports: [
-    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
-    forwardRef(() => AuthModule),
-    NotesModule,
-    forwardRef(() => QuizModule),
-    MailModule,
-  ],
-  controllers: [UsersController, AdminController],
-  providers: [UsersService, UsersScheduler],
-  exports: [UsersService],
+    imports: [
+        MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+        forwardRef(() => AuthModule),
+        NotesModule,
+        forwardRef(() => QuizModule),
+        MailModule,
+    ],
+    controllers: [UsersController, AdminController],
+    providers: [UsersService, UsersScheduler],
+    exports: [UsersService],
 })
 export class UsersModule {}

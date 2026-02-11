@@ -6,11 +6,11 @@ import { Exam, ExamSchema } from './entities/exam.entity';
 import { AiModule } from '../ai/ai.module';
 
 @Module({
-  imports: [
-    MongooseModule.forFeature([{ name: Exam.name, schema: ExamSchema }]),
-    AiModule,
-  ],
-  controllers: [ExamsController],
-  providers: [ExamsService],
+    imports: [
+        MongooseModule.forFeature([{ name: Exam.name, schema: ExamSchema }]),
+        AiModule,
+    ],
+    controllers: [ExamsController],
+    providers: [ExamsService],
 })
 export class ExamsModule {}

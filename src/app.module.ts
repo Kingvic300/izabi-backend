@@ -17,31 +17,31 @@ import { AuditModule } from './audit/audit.module';
 import { PaymentsModule } from './payments/payments.module';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
-    ScheduleModule.forRoot(),
-    MongooseModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI'),
-      }),
-      inject: [ConfigService],
-    }),
-    AuthModule,
-    UsersModule,
-    NotesModule,
-    QuizModule,
-    AiModule,
-    StudyModule,
-    MailModule,
-    CloudinaryModule,
-    ExamsModule,
-    AuditModule,
-    PaymentsModule,
-  ],
-  controllers: [AppController],
-  providers: [AppService],
+    imports: [
+        ConfigModule.forRoot({
+            isGlobal: true,
+        }),
+        ScheduleModule.forRoot(),
+        MongooseModule.forRootAsync({
+            imports: [ConfigModule],
+            useFactory: async (configService: ConfigService) => ({
+                uri: configService.get<string>('MONGODB_URI'),
+            }),
+            inject: [ConfigService],
+        }),
+        AuthModule,
+        UsersModule,
+        NotesModule,
+        QuizModule,
+        AiModule,
+        StudyModule,
+        MailModule,
+        CloudinaryModule,
+        ExamsModule,
+        AuditModule,
+        PaymentsModule,
+    ],
+    controllers: [AppController],
+    providers: [AppService],
 })
 export class AppModule {}

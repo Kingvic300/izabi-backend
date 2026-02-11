@@ -7,62 +7,62 @@ A comprehensive, production-ready Paystack payment integration for the IZABI app
 ### Core Features ✅
 
 1. **Payment Processing**
-   - Payment initialization with plan selection
-   - Real-time payment verification
-   - Automatic subscription activation on successful payment
-   - Failed payment retry mechanism
-   - Payment cancellation for pending transactions
+    - Payment initialization with plan selection
+    - Real-time payment verification
+    - Automatic subscription activation on successful payment
+    - Failed payment retry mechanism
+    - Payment cancellation for pending transactions
 
 2. **Payment Management**
-   - Paginated payment history
-   - Payment statistics and analytics
-   - Individual payment lookup by reference
-   - Full refund processing with reason tracking
+    - Paginated payment history
+    - Payment statistics and analytics
+    - Individual payment lookup by reference
+    - Full refund processing with reason tracking
 
 3. **Banking Features**
-   - Nigerian banks list retrieval
-   - Bank account number verification
-   - Account name resolution
+    - Nigerian banks list retrieval
+    - Bank account number verification
+    - Account name resolution
 
 4. **Security**
-   - JWT-based authentication on all endpoints
-   - Webhook signature verification (HMAC SHA512)
-   - Secure API key management
-   - Input validation with DTOs
+    - JWT-based authentication on all endpoints
+    - Webhook signature verification (HMAC SHA512)
+    - Secure API key management
+    - Input validation with DTOs
 
 5. **Audit & Logging**
-   - Comprehensive payment activity logging
-   - Webhook event tracking
-   - User activity audit trail
-   - Error logging for debugging
+    - Comprehensive payment activity logging
+    - Webhook event tracking
+    - User activity audit trail
+    - Error logging for debugging
 
 6. **Webhook Integration**
-   - Real-time payment status updates
-   - Automatic subscription activation
-   - Signature verification
-   - Event processing
+    - Real-time payment status updates
+    - Automatic subscription activation
+    - Signature verification
+    - Event processing
 
 ## 📁 Files Created/Modified
 
 ### New Files
 
 1. **Service Layer**
-   - `src/payments/paystack.service.ts` - Enhanced with 10+ methods
-   - `src/payments/payment-logger.service.ts` - Audit logging service
+    - `src/payments/paystack.service.ts` - Enhanced with 10+ methods
+    - `src/payments/payment-logger.service.ts` - Audit logging service
 
 2. **DTOs**
-   - `src/payments/dto/initialize-payment.dto.ts`
-   - `src/payments/dto/webhook-payload.dto.ts`
+    - `src/payments/dto/initialize-payment.dto.ts`
+    - `src/payments/dto/webhook-payload.dto.ts`
 
 3. **Entities**
-   - `src/payments/entities/payment-log.entity.ts`
+    - `src/payments/entities/payment-log.entity.ts`
 
 4. **Documentation**
-   - `src/payments/README.md` - Comprehensive API documentation
+    - `src/payments/README.md` - Comprehensive API documentation
 
 5. **Testing Tools**
-   - `test-paystack.js` - Automated test script
-   - `paystack-api.postman_collection.json` - Postman collection
+    - `test-paystack.js` - Automated test script
+    - `paystack-api.postman_collection.json` - Postman collection
 
 ### Modified Files
 
@@ -73,19 +73,19 @@ A comprehensive, production-ready Paystack payment integration for the IZABI app
 
 ## 🚀 API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/payments/initialize` | Initialize new payment |
-| GET | `/api/payments/verify/:ref` | Verify payment |
-| GET | `/api/payments/history` | Get payment history |
-| GET | `/api/payments/stats` | Get payment statistics |
-| GET | `/api/payments/:ref` | Get single payment |
-| POST | `/api/payments/retry/:ref` | Retry failed payment |
-| POST | `/api/payments/cancel/:ref` | Cancel pending payment |
-| POST | `/api/payments/refund/:ref` | Process refund |
-| GET | `/api/payments/banks/list` | Get banks list |
-| POST | `/api/payments/banks/verify` | Verify account |
-| POST | `/api/payments/webhook` | Webhook endpoint |
+| Method | Endpoint                     | Description            |
+| ------ | ---------------------------- | ---------------------- |
+| POST   | `/api/payments/initialize`   | Initialize new payment |
+| GET    | `/api/payments/verify/:ref`  | Verify payment         |
+| GET    | `/api/payments/history`      | Get payment history    |
+| GET    | `/api/payments/stats`        | Get payment statistics |
+| GET    | `/api/payments/:ref`         | Get single payment     |
+| POST   | `/api/payments/retry/:ref`   | Retry failed payment   |
+| POST   | `/api/payments/cancel/:ref`  | Cancel pending payment |
+| POST   | `/api/payments/refund/:ref`  | Process refund         |
+| GET    | `/api/payments/banks/list`   | Get banks list         |
+| POST   | `/api/payments/banks/verify` | Verify account         |
+| POST   | `/api/payments/webhook`      | Webhook endpoint       |
 
 ## 🛠️ Technical Stack
 
@@ -132,6 +132,7 @@ PAYSTACK_CALLBACK_URL=https://yourdomain.com/payment/verify
 ## 📊 Database Schema
 
 ### Payment Collection
+
 ```javascript
 {
   userId: ObjectId,
@@ -147,6 +148,7 @@ PAYSTACK_CALLBACK_URL=https://yourdomain.com/payment/verify
 ```
 
 ### PaymentLog Collection
+
 ```javascript
 {
   userId: String,
@@ -162,14 +164,17 @@ PAYSTACK_CALLBACK_URL=https://yourdomain.com/payment/verify
 ## 🧪 Testing
 
 ### Test Script
+
 ```bash
 node test-paystack.js
 ```
 
 ### Postman Collection
+
 Import `paystack-api.postman_collection.json` into Postman for manual testing.
 
 ### Test Cards (Paystack)
+
 - Success: `4084084084084081`
 - Decline: `4084080000000408`
 
@@ -185,25 +190,25 @@ Import `paystack-api.postman_collection.json` into Postman for manual testing.
 ### Future Enhancements
 
 1. **Recurring Subscriptions**
-   - Implement subscription plans
-   - Auto-renewal functionality
-   - Subscription cancellation
+    - Implement subscription plans
+    - Auto-renewal functionality
+    - Subscription cancellation
 
 2. **Payment Analytics**
-   - Revenue dashboard
-   - Conversion tracking
-   - Failed payment analytics
+    - Revenue dashboard
+    - Conversion tracking
+    - Failed payment analytics
 
 3. **Advanced Features**
-   - Split payments
-   - Payment links
-   - Invoicing system
-   - Multi-currency support
+    - Split payments
+    - Payment links
+    - Invoicing system
+    - Multi-currency support
 
 4. **Notifications**
-   - Email receipts
-   - SMS notifications
-   - Payment reminders
+    - Email receipts
+    - SMS notifications
+    - Payment reminders
 
 ## 🔒 Security Checklist
 

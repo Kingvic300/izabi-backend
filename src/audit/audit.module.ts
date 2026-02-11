@@ -14,23 +14,23 @@ import { User, UserSchema } from '../users/entities/user.entity';
 // WHY: Centralizes monitoring without requiring manual imports in every feature module
 @Global()
 @Module({
-  imports: [
-    MongooseModule.forFeature([
-      { name: AuditLog.name, schema: AuditLogSchema },
-      { name: CronLog.name, schema: CronLogSchema },
-      { name: User.name, schema: UserSchema }, // For fetching user details in AuditInterceptor
-    ]),
-    MailModule,
-  ],
-  controllers: [CronController],
-  providers: [
-    AuditService,
-    AuditScheduler,
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: AuditInterceptor,
-    },
-  ],
-  exports: [AuditService],
+    imports: [
+        MongooseModule.forFeature([
+            { name: AuditLog.name, schema: AuditLogSchema },
+            { name: CronLog.name, schema: CronLogSchema },
+            { name: User.name, schema: UserSchema }, // For fetching user details in AuditInterceptor
+        ]),
+        MailModule,
+    ],
+    controllers: [CronController],
+    providers: [
+        AuditService,
+        AuditScheduler,
+        {
+            provide: APP_INTERCEPTOR,
+            useClass: AuditInterceptor,
+        },
+    ],
+    exports: [AuditService],
 })
 export class AuditModule {}

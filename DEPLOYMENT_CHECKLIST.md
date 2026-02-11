@@ -3,6 +3,7 @@
 ## Pre-Deployment Setup
 
 ### 1. Environment Configuration
+
 - [ ] Set `PAYSTACK_SECRET_KEY` in production environment
 - [ ] Set `PAYSTACK_PUBLIC_KEY` in production environment
 - [ ] Set `PAYSTACK_CALLBACK_URL` to production URL
@@ -11,6 +12,7 @@
 - [ ] Enable HTTPS/SSL certificate
 
 ### 2. Paystack Dashboard Configuration
+
 - [ ] Create Paystack account (or use existing)
 - [ ] Verify business details in Paystack dashboard
 - [ ] Switch to live API keys (remove test keys)
@@ -20,6 +22,7 @@
 - [ ] Set up email notifications in Paystack
 
 ### 3. Database Setup
+
 - [ ] Ensure `payments` collection exists
 - [ ] Ensure `payment_logs` collection exists
 - [ ] Create index on `reference` field (unique)
@@ -28,6 +31,7 @@
 - [ ] Test database connectivity
 
 ### 4. Security Review
+
 - [ ] Verify all endpoints require JWT authentication
 - [ ] Add rate limiting middleware (recommended)
 - [ ] Add admin guard to `/refund` endpoint
@@ -37,6 +41,7 @@
 - [ ] Set up IP whitelisting for webhooks (optional)
 
 ### 5. Code Review
+
 - [ ] Review all error messages (no sensitive data)
 - [ ] Verify all amounts are in kobo (x100)
 - [ ] Check payment plan amounts are correct
@@ -47,6 +52,7 @@
 ## Testing Checklist
 
 ### 6. Local Testing
+
 - [ ] Run build: `npm run build`
 - [ ] Start server: `npm start`
 - [ ] Test payment initialization
@@ -60,6 +66,7 @@
 - [ ] Test payment cancellation
 
 ### 7. Integration Testing
+
 - [ ] Import Postman collection
 - [ ] Test all endpoints sequentially
 - [ ] Verify database records are created
@@ -69,6 +76,7 @@
 - [ ] Test edge cases (invalid reference, etc.)
 
 ### 8. Frontend Integration
+
 - [ ] Update frontend payment button
 - [ ] Implement redirect to Paystack checkout
 - [ ] Create verification callback page
@@ -81,6 +89,7 @@
 ## Deployment Steps
 
 ### 9. Deploy to Production
+
 - [ ] Build production bundle: `npm run build`
 - [ ] Deploy to server (Render, Railway, etc.)
 - [ ] Verify environment variables are set
@@ -89,6 +98,7 @@
 - [ ] Test health check endpoint
 
 ### 10. Post-Deployment Testing
+
 - [ ] Test payment with real Naira amount (small)
 - [ ] Verify webhook receives events
 - [ ] Check database records are created
@@ -98,6 +108,7 @@
 - [ ] Monitor error logs for 24 hours
 
 ### 11. Monitoring Setup
+
 - [ ] Set up error tracking (Sentry, etc.)
 - [ ] Configure logging service
 - [ ] Set up uptime monitoring
@@ -108,6 +119,7 @@
 ## Go-Live Checklist
 
 ### 12. Final Verification
+
 - [ ] Verify payment amounts are correct (in Naira)
 - [ ] Test complete user journey
 - [ ] Verify refund process works
@@ -118,6 +130,7 @@
 - [ ] Check accessibility
 
 ### 13. Documentation
+
 - [ ] Update API documentation
 - [ ] Document payment plans
 - [ ] Create troubleshooting guide
@@ -127,6 +140,7 @@
 - [ ] Add FAQ section
 
 ### 14. Business Setup
+
 - [ ] Configure payment settlement account
 - [ ] Set up accounting integration
 - [ ] Create payment reports dashboard
@@ -137,6 +151,7 @@
 ## Production Monitoring
 
 ### 15. Daily Checks
+
 - [ ] Review failed payment logs
 - [ ] Check webhook delivery status
 - [ ] Monitor payment success rate
@@ -144,6 +159,7 @@
 - [ ] Check for any API errors
 
 ### 16. Weekly Reviews
+
 - [ ] Analyze payment statistics
 - [ ] Review refund requests
 - [ ] Check payment fraud alerts
@@ -153,6 +169,7 @@
 ## Rollback Plan
 
 ### 17. In Case of Issues
+
 - [ ] Document current state
 - [ ] Backup database
 - [ ] Revert to previous version
@@ -163,11 +180,13 @@
 ## Support Resources
 
 ### Contact Information
+
 - **Paystack Support**: support@paystack.com
 - **Paystack Documentation**: https://paystack.com/docs
 - **Emergency Hotline**: [Add your support number]
 
 ### Useful Links
+
 - Paystack Dashboard: https://dashboard.paystack.com
 - API Reference: https://paystack.com/docs/api
 - Test Cards: https://paystack.com/docs/payments/test-payments
@@ -176,6 +195,7 @@
 ## Performance Benchmarks
 
 ### Target Metrics
+
 - Payment initialization: < 2 seconds
 - Payment verification: < 3 seconds
 - Webhook processing: < 1 second
@@ -186,6 +206,7 @@
 ## Compliance
 
 ### Legal Requirements
+
 - [ ] Privacy policy includes payment data handling
 - [ ] Terms of service mention payment terms
 - [ ] Refund policy is published
@@ -197,6 +218,7 @@
 ## Quick Reference
 
 ### Test Cards (Paystack)
+
 - **Success**: 4084084084084081
 - **Decline**: 4084080000000408
 - **Insufficient Funds**: 4084080000000409
@@ -204,19 +226,22 @@
 ### Common Issues
 
 **Issue**: Webhook not receiving events
-**Solution**: 
+**Solution**:
+
 1. Check webhook URL in Paystack dashboard
 2. Verify signature verification code
 3. Test with Paystack webhook debugger
 
 **Issue**: Payment verification fails
 **Solution**:
+
 1. Check reference exists in database
 2. Verify Paystack API credentials
 3. Check network connectivity
 
 **Issue**: Refund not processing
 **Solution**:
+
 1. Verify payment status is 'success'
 2. Check Paystack account balance
 3. Review refund eligibility
