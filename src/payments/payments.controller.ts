@@ -8,11 +8,9 @@ import {
     Req,
     Headers,
     BadRequestException,
-    Query,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PaymentsService } from './payments.service';
-import { ConfigService } from '@nestjs/config';
 import { PaystackService } from './paystack.service';
 
 @Controller('api/payments')
@@ -20,7 +18,6 @@ export class PaymentsController {
     constructor(
         private readonly paymentsService: PaymentsService,
         private readonly paystackService: PaystackService,
-        private readonly configService: ConfigService,
     ) {}
 
     /**
@@ -32,7 +29,10 @@ export class PaymentsController {
         @Req() req: any,
         @Body() body: { plan: 'pro_monthly' | 'premium_monthly' },
     ) {
-        return this.paymentsService.startPayment(req.user.userId, body.plan);
+        return this.paymentsService.startPayment(
+            req.user.userId,
+            body.plan,
+        );
     }
 
     /**
@@ -45,80 +45,22 @@ export class PaymentsController {
     }
 
     /**
-     * Get payment history with pagination
-     */
-    @UseGuards(JwtAuthGuard)
-    @Get('history')
-    async getHistory(
-        @Req() req: any,
-        @Query('page') page = 1,
-        @Query('limit') limit = 10,
-    ) {
-        return this.paymentsService.getPaymentHistory(
-            req.user.userId,
-            Number(page),
-            Number(limit),
-        );
-    }
-
-    /**
-     * Get payment statistics
-     */
-    @UseGuards(JwtAuthGuard)
-    @Get('stats')
-    async getStats(@Req() req: any) {
-        return this.paymentsService.getPaymentStats(req.user.userId);
-    }
-
-    /**
-     * Get single payment details
-     */
-    @UseGuards(JwtAuthGuard)
-    @Get(':reference')
-    async getPayment(@Req() req: any, @Param('reference') reference: string) {
-        return this.paymentsService.getPayment(reference, req.user.userId);
-    }
-
-    /**
      * Retry failed payment
      */
     @UseGuards(JwtAuthGuard)
     @Post('retry/:reference')
-    async retryPayment(@Req() req: any, @Param('reference') reference: string) {
-        return this.paymentsService.retryPayment(reference, req.user.userId);
-    }
-
-    /**
-     * Cancel pending payment
-     */
-    @UseGuards(JwtAuthGuard)
-    @Post('cancel/:reference')
-    async cancelPayment(
+    async retryPayment(
         @Req() req: any,
         @Param('reference') reference: string,
     ) {
-        return this.paymentsService.cancelPayment(reference, req.user.userId);
-    }
-
-    /**
-     * Process refund (Admin only - add admin guard in production)
-     */
-    @UseGuards(JwtAuthGuard)
-    @Post('refund/:reference')
-    async refund(
-        @Req() req: any,
-        @Param('reference') reference: string,
-        @Body('reason') reason?: string,
-    ) {
-        return this.paymentsService.processRefund(
+        return this.paymentsService.retryPayment(
             reference,
             req.user.userId,
-            reason,
         );
     }
 
     /**
-     * Cancel auto-renewal of a subscription
+     * Cancel auto-renewal
      */
     @UseGuards(JwtAuthGuard)
     @Post('cancel-auto-renew')
@@ -151,11 +93,14 @@ export class PaymentsController {
     }
 
     /**
-     * Paystack Webhook - receives payment notifications
+     * Paystack Webhook
      */
     @Post('webhook')
     async webhook(
-        @Body() body: any,
+        @Body() body: {
+            event: string;
+            data?: { reference?: string };
+        },
         @Headers('x-paystack-signature') signature: string,
     ) {
         if (!signature) {
@@ -163,6 +108,7 @@ export class PaymentsController {
         }
 
         const payload = JSON.stringify(body);
+
         const isValid = this.paystackService.verifyWebhookSignature(
             payload,
             signature,
@@ -172,9 +118,13 @@ export class PaymentsController {
             throw new BadRequestException('Invalid webhook signature');
         }
 
-        // Process webhook events
-        if (body.event === 'charge.success') {
-            await this.paymentsService.verifyPayment(body.data.reference);
+        if (
+            body.event === 'charge.success' &&
+            body.data?.reference
+        ) {
+            await this.paymentsService.verifyPayment(
+                body.data.reference,
+            );
         }
 
         return { status: 'success' };
