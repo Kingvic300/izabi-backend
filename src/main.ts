@@ -12,6 +12,8 @@ async function bootstrap() {
     app.use(express.urlencoded({ limit: '500mb', extended: true }));
 
     const defaultCorsOrigins = [
+        'https://izabi.halixe.com',
+        'https://izabi.vercel.app',
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'https://izabi.onrender.com',
