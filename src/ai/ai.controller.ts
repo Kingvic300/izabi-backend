@@ -148,7 +148,10 @@ export class AiController {
                 throw new BadRequestException('PDF file is required');
             }
 
-            if (!file.mimetype.includes('pdf')) {
+            const mime = (file.mimetype || '').toLowerCase();
+            const fileName = (file.originalname || '').toLowerCase();
+            const isPdf = mime.includes('pdf') || fileName.endsWith('.pdf');
+            if (!isPdf) {
                 throw new BadRequestException('Only PDF files are supported');
             }
 

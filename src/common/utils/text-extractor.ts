@@ -7,6 +7,21 @@ const MAX_EXTRACTION_CHARS = 700000;
 const MAX_PDF_PAGES = 300;
 const MAX_FILE_SIZE_MB = 100;
 
+const isPdfFile = (file: Express.Multer.File): boolean => {
+    const mime = (file.mimetype || '').toLowerCase();
+    const fileName = (file.originalname || '').toLowerCase();
+    return mime.includes('pdf') || fileName.endsWith('.pdf');
+};
+
+const loadPdfJs = async (): Promise<any> => {
+    try {
+        // Prefer legacy build for Node.js runtime compatibility.
+        return await import('pdfjs-dist/legacy/build/pdf.mjs');
+    } catch {
+        return await import('pdfjs-dist/build/pdf.mjs');
+    }
+};
+
 /**
  * Smartly trims text to focus on main content by removing common book/paper noise.
  */
@@ -72,15 +87,8 @@ export const extractTextFromFile = async (
             `[DocumentNode] Ingesting: ${file.originalname} (${mime}, ${fileSizeMB.toFixed(2)}MB)`,
         );
 
-        if (mime === 'application/pdf') {
-            // Use PDF.js (Mozilla) for robust Node.js extraction
-            // Try legacy build first for best Node compatibility
-            let pdfjs: any;
-            try {
-                pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
-            } catch (e) {
-                pdfjs = require('pdfjs-dist/build/pdf.js');
-            }
+        if (isPdfFile(file)) {
+            const pdfjs = await loadPdfJs();
 
             const doc = await pdfjs.getDocument({
                 data: new Uint8Array(file.buffer),
@@ -185,13 +193,8 @@ export const extractTextPreview = async (
     try {
         if (!file?.buffer) return '';
 
-        if (file.mimetype === 'application/pdf') {
-            let pdfjs: any;
-            try {
-                pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
-            } catch (e) {
-                pdfjs = require('pdfjs-dist/build/pdf.js');
-            }
+        if (isPdfFile(file)) {
+            const pdfjs = await loadPdfJs();
 
             const doc = await pdfjs.getDocument({
                 data: new Uint8Array(file.buffer),
