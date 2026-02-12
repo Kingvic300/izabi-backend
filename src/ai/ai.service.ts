@@ -92,6 +92,30 @@ export class AiService {
 
     // --- Token Estimation ---
 
+    // Keep logs compact and never leak request headers/body in error dumps.
+    private summarizeError(error: any): string {
+        if (axios.isAxiosError(error)) {
+            const status = error.response?.status ?? 'NA';
+            const code = error.code ?? 'NA';
+            const message = error.message ?? 'Axios error';
+            return `AxiosError(status=${status}, code=${code}, message=${message})`;
+        }
+
+        if (error instanceof Error) {
+            return `${error.name}: ${error.message}`;
+        }
+
+        if (typeof error === 'string') {
+            return error;
+        }
+
+        try {
+            return JSON.stringify(error);
+        } catch {
+            return String(error);
+        }
+    }
+
     /**
      * Estimates token usage for LLaMA-style models.
      * Simple heuristic: ~3.5 characters per token + protocol overhead.
@@ -194,10 +218,29 @@ export class AiService {
                 const status = axios.isAxiosError(error)
                     ? error.response?.status
                     : undefined;
+                const axiosCode = axios.isAxiosError(error)
+                    ? (error.code || '').toUpperCase()
+                    : '';
+                const axiosMessage = axios.isAxiosError(error)
+                    ? (error.message || '').toLowerCase()
+                    : '';
+                const isTimeoutError =
+                    axiosCode === 'ECONNABORTED' ||
+                    axiosCode === 'ETIMEDOUT' ||
+                    axiosMessage.includes('timeout');
+                const isNetworkError = [
+                    'ERR_NETWORK',
+                    'ECONNRESET',
+                    'ECONNREFUSED',
+                    'EAI_AGAIN',
+                    'ENOTFOUND',
+                ].includes(axiosCode);
 
                 const isRetryable =
                     error instanceof UnauthorizedException ||
                     error instanceof ServiceUnavailableException ||
+                    isTimeoutError ||
+                    isNetworkError ||
                     (typeof status === 'number' &&
                         (status === 429 || status === 401 || status >= 500));
 
@@ -241,6 +284,16 @@ export class AiService {
             console.log(
                 `[AiService] Calling Groq API (Model: ${model}, Tokens: ${estimatedTokens})...`,
             );
+            const requestConfig: any = {
+                headers: {
+                    Authorization: `Bearer ${key}`,
+                    'Content-Type': 'application/json',
+                },
+                responseType: stream ? 'stream' : 'json',
+                timeout: 60000, // 60s timeout for large generations
+                // Do not retry the same key internally; let executeWithRetry rotate keys.
+                'axios-retry': { retries: 0 },
+            };
             return await axios.post(
                 'https://api.groq.com/openai/v1/chat/completions',
                 {
@@ -250,14 +303,7 @@ export class AiService {
                     stream,
                     temperature: 0.2, // Lower temperature for more consistent JSON
                 },
-                {
-                    headers: {
-                        Authorization: `Bearer ${key}`,
-                        'Content-Type': 'application/json',
-                    },
-                    responseType: stream ? 'stream' : 'json',
-                    timeout: 60000, // 60s timeout for large generations
-                },
+                requestConfig,
             );
         } catch (error: any) {
             if (axios.isAxiosError(error) && error.response) {
@@ -279,6 +325,26 @@ export class AiService {
                 if (status >= 500)
                     throw new ServiceUnavailableException('Groq: Server Error');
             }
+
+            if (axios.isAxiosError(error)) {
+                const code = (error.code || '').toUpperCase();
+                const isNetworkOrTimeout =
+                    !error.response ||
+                    code === 'ECONNABORTED' ||
+                    code === 'ETIMEDOUT' ||
+                    code === 'ERR_NETWORK' ||
+                    code === 'ECONNRESET' ||
+                    code === 'ECONNREFUSED' ||
+                    code === 'EAI_AGAIN' ||
+                    code === 'ENOTFOUND';
+
+                if (isNetworkOrTimeout) {
+                    throw new ServiceUnavailableException(
+                        'Groq: Timeout/Network Error',
+                    );
+                }
+            }
+
             throw error;
         }
     }
@@ -794,8 +860,8 @@ export class AiService {
                 }
 
                 const summaries: string[] = [];
-                // OPTIMIZATION: Increased batch size from 5 to 10 for faster processing
-                const BATCH_SIZE = 10;
+                // Keep concurrency moderate so AI batch jobs don't degrade overall API responsiveness.
+                const BATCH_SIZE = 4;
 
                 for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
                     const batch = chunks.slice(i, i + BATCH_SIZE);
@@ -831,8 +897,9 @@ export class AiService {
                             summaries.push(result.value);
                         } else {
                             console.warn(
-                                `[AiService] Batch chunk ${idx} failed:`,
-                                result.reason,
+                                `[AiService] Batch chunk ${idx} failed: ${this.summarizeError(
+                                    result.reason,
+                                )}`,
                             );
                         }
                     });

@@ -26,7 +26,7 @@ export class AuditInterceptor implements NestInterceptor {
         const url = request.url;
 
         // RULE: Skip login logging in real-time alerts (stay internal)
-        if (url.includes('/auth/login')) {
+        if (url.includes('/auth/login') || url.includes('/user/login')) {
             return next.handle();
         }
 

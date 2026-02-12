@@ -11,10 +11,33 @@ async function bootstrap() {
     app.use(express.json({ limit: '500mb' }));
     app.use(express.urlencoded({ limit: '500mb', extended: true }));
 
-    // Enable CORS
+    const defaultCorsOrigins = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'https://izabi.onrender.com',
+    ];
+    const envCorsOrigins = (process.env.CORS_ORIGINS ?? '')
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+    const corsOrigins = [...new Set([...defaultCorsOrigins, ...envCorsOrigins])];
+
+    // Enable CORS with explicit allowlist
     app.enableCors({
-        origin: true,
+        origin: (
+            origin: string | undefined,
+            callback: (error: Error | null, allow?: boolean) => void,
+        ) => {
+            if (!origin || corsOrigins.includes(origin)) {
+                callback(null, true);
+                return;
+            }
+
+            callback(new Error(`CORS blocked for origin: ${origin}`));
+        },
         credentials: true,
+        methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
     });
 
     // Global validation pipe
