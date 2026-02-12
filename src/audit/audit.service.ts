@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { AuditLog, AuditLogDocument } from './entities/audit-log.entity';
 import { MailService } from '../mail/mail.service';
 import { ConfigService } from '@nestjs/config';
+import { getAuditAlertTemplate } from '../mail/mail.templates';
 
 @Injectable()
 export class AuditService {
@@ -42,16 +43,8 @@ export class AuditService {
     // HOW: Send a single transactional alert email
     // WHY: Direct notification for HIGH/CRITICAL severity actions
     private async sendImmediateAlert(log: AuditLogDocument) {
-        const subject = `[${log.severity}] Audit Alert: ${log.action}`;
-        const content = `
-      <h3>${log.severity} Severity Event Detected</h3>
-      <p><b>Action:</b> ${log.action}</p>
-      <p><b>Outcome:</b> ${log.outcome}</p>
-      <p><b>User:</b> ${log.user.fullName} (${log.user.email})</p>
-      <p><b>Route:</b> ${log.request.method} ${log.request.route}</p>
-      <hr>
-      <pre>${JSON.stringify(log.user, null, 2)}</pre>
-    `;
+        const subject = `[${log.severity}] Audit Alert • ${log.action}`;
+        const content = getAuditAlertTemplate(log);
 
         // HOW: Reuse existing MailService to send via Brevo
         // NOTE: MailService needs to be updated to support custom HTML or we use a hack

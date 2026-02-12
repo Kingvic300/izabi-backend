@@ -6,6 +6,7 @@ import { AuditService } from './audit.service';
 import { MailService } from '../mail/mail.service';
 import { AuditLogDocument } from './entities/audit-log.entity';
 import { CronLog, CronLogDocument } from './entities/cron-log.entity';
+import { getAuditDigestTemplate } from '../mail/mail.templates';
 
 @Injectable()
 export class AuditScheduler {
@@ -22,6 +23,13 @@ export class AuditScheduler {
         private mailService: MailService,
         @InjectModel(CronLog.name) private cronLogModel: Model<CronLogDocument>,
     ) {}
+
+    private getErrorMessage(error: unknown): string {
+        if (error instanceof Error && error.message) {
+            return error.message;
+        }
+        return String(error);
+    }
 
     // HOW: Triggered by internal cron or external HTTP call
     // WHY: UptimeRobot calls this every 5 mins, but logic only runs every 15 mins
@@ -60,7 +68,11 @@ export class AuditScheduler {
             );
             return { status: 'success', sent: events.length };
         } catch (error) {
-            await this.updateLastRun('medium-digest', 'FAILURE', error.message);
+            await this.updateLastRun(
+                'medium-digest',
+                'FAILURE',
+                this.getErrorMessage(error),
+            );
             throw error;
         }
     }
@@ -101,7 +113,11 @@ export class AuditScheduler {
             );
             return { status: 'success', sent: events.length };
         } catch (error) {
-            await this.updateLastRun('low-digest', 'FAILURE', error.message);
+            await this.updateLastRun(
+                'low-digest',
+                'FAILURE',
+                this.getErrorMessage(error),
+            );
             throw error;
         }
     }
@@ -150,40 +166,13 @@ export class AuditScheduler {
             {} as Record<string, number>,
         );
 
-        const html = `
-      <h2>${subject}</h2>
-      <p>${description}</p>
-      <p><b>Total Events:</b> ${events.length}</p>
-      
-      <h4>Summary by Action Type:</h4>
-      <ul>
-        ${Object.entries(grouped)
-            .map(([action, count]) => `<li>${action}: ${count}</li>`)
-            .join('')}
-      </ul>
-      
-      <h4>Detailed Event Log:</h4>
-      <table border="1" style="border-collapse: collapse; width: 100%;">
-        <tr style="background: #f2f2f2;">
-          <th>Time</th>
-          <th>User</th>
-          <th>Action</th>
-          <th>Outcome</th>
-        </tr>
-        ${events
-            .map(
-                (e) => `
-          <tr>
-            <td>${e.createdAt?.toISOString().split('T')[1].split('.')[0]}</td>
-            <td>${e.user.fullName} (${e.user.email})</td>
-            <td>${e.action}</td>
-            <td>${e.outcome}</td>
-          </tr>
-        `,
-            )
-            .join('')}
-      </table>
-    `;
+        const html = getAuditDigestTemplate({
+            subject,
+            description,
+            totalEvents: events.length,
+            grouped,
+            events,
+        });
 
         await this.mailService.sendCustomEmail(this.ADMIN_EMAIL, subject, html);
         await this.auditService.markAsEmailed(

@@ -338,11 +338,19 @@ export class AiService {
         }
     }
 
-    async getResponse(message: string, userId?: string): Promise<string> {
-        return this.performContextAwareChat(userId || '', message);
+    async getResponse(
+        message: string,
+        userId?: string,
+        documentId?: string,
+    ): Promise<string> {
+        return this.performContextAwareChat(userId || '', message, documentId);
     }
 
-    async *getResponseStream(message: string, userId?: string) {
+    async *getResponseStream(
+        message: string,
+        userId?: string,
+        documentId?: string,
+    ) {
         if (userId) {
             try {
                 await this.usersService.checkActivityLimit(
@@ -360,6 +368,12 @@ export class AiService {
         let streamResponse: any;
 
         try {
+            const prompt = await this.buildContextAwarePrompt(
+                userId || '',
+                message,
+                documentId,
+            );
+
             // Only connection phase is retried
             streamResponse = await this.executeWithRetry(async (key) => {
                 const res = await this.callGroqApi(
@@ -367,9 +381,9 @@ export class AiService {
                         {
                             role: 'system',
                             content:
-                                'You are Izabi, a world-class AI Learning Assistant. Use Markdown.',
+                                'You are Izabi, a world-class AI Learning Assistant. Use Markdown and prioritize provided context when available.',
                         },
-                        { role: 'user', content: message },
+                        { role: 'user', content: prompt },
                     ],
                     key,
                     true,
@@ -462,6 +476,37 @@ export class AiService {
         }
         this.currentUserId = userId || null;
 
+        const prompt = await this.buildContextAwarePrompt(
+            userId,
+            message,
+            documentId,
+        );
+
+        console.log(
+            `[AiService] Prompt prepared. length: ${prompt.length}. Entering executeWithRetry...`,
+        );
+        return this.executeWithRetry(async (key) => {
+            const res = await this.callGroqApi(
+                [
+                    {
+                        role: 'system',
+                        content:
+                            'You are Izabi. Answer efficiently and accurately using the provided context.',
+                    },
+                    { role: 'user', content: prompt },
+                ],
+                key,
+                false,
+            );
+            return res.data.choices[0].message.content;
+        }, userId);
+    }
+
+    private async buildContextAwarePrompt(
+        userId: string,
+        message: string,
+        documentId?: string,
+    ): Promise<string> {
         // 1. Retrieve relevant chunks
         console.log(
             `[AiService] Searching knowledge base for: "${message}"...`,
@@ -483,29 +528,30 @@ export class AiService {
             console.log(`[AiService] No relevant context found.`);
         }
 
-        // 2. Synthesize Answer
-        const prompt = context
+        return context
             ? `Use the following context to answer the user's question. If the answer is not in the context, say so, but try to be helpful based on the context provided.\n\n[CONTEXT]\n${context}\n\n[USER QUESTION]\n${message}`
             : message;
+    }
 
-        console.log(
-            `[AiService] Prompt prepared. length: ${prompt.length}. Entering executeWithRetry...`,
-        );
-        return this.executeWithRetry(async (key) => {
-            const res = await this.callGroqApi(
-                [
-                    {
-                        role: 'system',
-                        content:
-                            'You are Izabi. Answer efficiently and accurately using the provided context.',
-                    },
-                    { role: 'user', content: prompt },
-                ],
-                key,
-                false,
-            );
-            return res.data.choices[0].message.content;
-        }, userId);
+    async uploadPdfForChat(userId: string, file: Express.Multer.File) {
+        const extractedText = await extractTextFromFile(file);
+        const contentHash = this.generateHash(extractedText);
+        const documentId = `pdf-${contentHash.slice(0, 24)}`;
+
+        await this.vectorService.addDocument(userId, documentId, extractedText, {
+            source: 'pdf-upload',
+            filename: file.originalname,
+            mime: file.mimetype,
+            contentHash,
+            uploadedAt: new Date().toISOString(),
+        });
+
+        return {
+            documentId,
+            fileName: file.originalname,
+            contentHash,
+            charactersIndexed: extractedText.length,
+        };
     }
 
     // --- Document Logic with Token Safety ---

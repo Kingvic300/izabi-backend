@@ -8,24 +8,32 @@ import { Model } from 'mongoose';
 import { User, UserDocument } from './entities/user.entity';
 import { CreateUserDto, UpdateProfileDto } from './dto/user.dto';
 import * as bcrypt from 'bcrypt';
-import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class UsersService {
+    private readonly STREAK_RESET_WINDOW_MS = 24 * 60 * 60 * 1000;
+
     constructor(
         @InjectModel(User.name) private userModel: Model<UserDocument>,
-        private mailService: MailService,
     ) {}
 
     // --- Core User Management ---
 
+    private getDefaultAvatar(email: string): string {
+        const seed = encodeURIComponent((email || 'scholar').toLowerCase());
+        return `https://api.dicebear.com/7.x/notionists/svg?seed=${seed}`;
+    }
+
     async create(createUserDto: CreateUserDto): Promise<UserDocument> {
         const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+        const normalizedEmail = createUserDto.email.toLowerCase();
         const user = new this.userModel({
             ...createUserDto,
+            email: normalizedEmail,
             password: hashedPassword,
             level: 1,
             streakFreezes: 0,
+            profilePicturePath: this.getDefaultAvatar(normalizedEmail),
         });
         return user.save();
     }
@@ -45,11 +53,15 @@ export class UsersService {
         lastName: string;
         profilePicture?: string;
     }): Promise<UserDocument> {
+        const normalizedEmail = profile.email.toLowerCase();
+        const googleAvatar =
+            profile.profilePicture || this.getDefaultAvatar(normalizedEmail);
+
         const user = await this.userModel
             .findOne({
                 $or: [
                     { googleId: profile.googleId },
-                    { email: profile.email.toLowerCase() },
+                    { email: normalizedEmail },
                 ],
             })
             .exec();
@@ -69,8 +81,16 @@ export class UsersService {
                 user.authProvider = 'google';
                 if (!user.firstName) user.firstName = profile.firstName;
                 if (!user.lastName) user.lastName = profile.lastName;
-                if (!user.profilePicturePath)
-                    user.profilePicturePath = profile.profilePicture || '';
+                user.profilePicturePath = googleAvatar;
+                needsSave = true;
+            }
+
+            if (
+                user.authProvider === 'google' &&
+                profile.profilePicture &&
+                user.profilePicturePath !== profile.profilePicture
+            ) {
+                user.profilePicturePath = profile.profilePicture;
                 needsSave = true;
             }
 
@@ -82,11 +102,11 @@ export class UsersService {
 
         // Create new user
         const newUser = new this.userModel({
-            email: profile.email.toLowerCase(),
+            email: normalizedEmail,
             googleId: profile.googleId,
             firstName: profile.firstName,
             lastName: profile.lastName,
-            profilePicturePath: profile.profilePicture,
+            profilePicturePath: googleAvatar,
             authProvider: 'google',
             isVerified: true,
             level: 1,
@@ -149,7 +169,7 @@ export class UsersService {
             .exec();
     }
 
-    // --- Professional Streak Engine (UTC Midnight) ---
+    // --- Professional Streak Engine ---
 
     private getMidnightUTC(date: Date): number {
         return Date.UTC(
@@ -157,6 +177,20 @@ export class UsersService {
             date.getUTCMonth(),
             date.getUTCDate(),
         );
+    }
+
+    private getElapsedMs(from: Date | null, to: Date): number {
+        if (!from) return Number.POSITIVE_INFINITY;
+        return to.getTime() - from.getTime();
+    }
+
+    private getLiveStreakValue(
+        streak: number,
+        lastDate: Date | null,
+        now: Date = new Date(),
+    ): number {
+        const elapsed = this.getElapsedMs(lastDate, now);
+        return elapsed <= this.STREAK_RESET_WINDOW_MS ? streak || 0 : 0;
     }
 
     private calculateStreakStatus(
@@ -170,8 +204,9 @@ export class UsersService {
 
         const todayUTC = this.getMidnightUTC(now);
         const lastUTC = this.getMidnightUTC(lastActivityDate);
-        const msPerDay = 24 * 60 * 60 * 1000;
+        const msPerDay = this.STREAK_RESET_WINDOW_MS;
         const diffDays = Math.floor((todayUTC - lastUTC) / msPerDay);
+        const elapsedMs = this.getElapsedMs(lastActivityDate, now);
 
         if (diffDays === 0) {
             return {
@@ -181,34 +216,11 @@ export class UsersService {
             };
         }
 
-        if (diffDays === 1) {
+        if (diffDays === 1 && elapsedMs <= this.STREAK_RESET_WINDOW_MS) {
             return {
                 streak: (user.streak || 0) + 1,
                 isNewDay: true,
                 freezeUsed: false,
-            };
-        }
-
-        // STREAK FREEZE PROTECTION
-        if (diffDays === 2 && user.streakFreezes > 0) {
-            user.streakFreezes -= 1;
-            user.markModified('streakFreezes');
-
-            // Notify user about the freeze usage
-            this.mailService
-                .sendStreakFreezeNotification(
-                    user.email,
-                    user.firstName || 'Scholar',
-                    user.streakFreezes,
-                )
-                .catch((err) =>
-                    console.error('Failed to notifiy freeze usage', err),
-                );
-
-            return {
-                streak: (user.streak || 0) + 1,
-                isNewDay: true,
-                freezeUsed: true,
             };
         }
 
@@ -473,45 +485,28 @@ export class UsersService {
         if (!user) throw new NotFoundException('User not found');
 
         const now = new Date();
-        const todayUTC = this.getMidnightUTC(now);
-        const lastUTC = user.lastStreakDate
-            ? this.getMidnightUTC(user.lastStreakDate)
-            : 0;
-        const diffDays = Math.floor(
-            (todayUTC - lastUTC) / (1000 * 60 * 60 * 24),
+        const liveStreak = this.getLiveStreakValue(
+            user.streak || 0,
+            user.lastStreakDate || null,
+            now,
         );
-
-        let liveStreak = user.streak;
         let status = 'active';
 
-        if (diffDays > 1) {
-            if (diffDays === 2 && (user.streakFreezes || 0) > 0)
-                status = 'frozen';
-            else {
-                liveStreak = 0;
-                status = 'expired';
-            }
+        if (liveStreak === 0 && (user.streak || 0) > 0) {
+            status = 'expired';
         }
 
         return {
             academicStreak: liveStreak,
-            loginStreak: this.calculateLiveStreak(
+            loginStreak: this.getLiveStreakValue(
                 user.activityStreaks?.login?.current || 0,
-                user.activityStreaks?.login?.lastDate,
+                user.activityStreaks?.login?.lastDate || null,
+                now,
             ),
             streakFreezes: user.streakFreezes || 0,
             status: status,
             longestStreak: user.longestStreak || 0,
         };
-    }
-
-    private calculateLiveStreak(streak: number, lastDate: Date | null): number {
-        if (!lastDate) return 0;
-        const diff = Math.floor(
-            (this.getMidnightUTC(new Date()) - this.getMidnightUTC(lastDate)) /
-                (1000 * 60 * 60 * 24),
-        );
-        return diff <= 1 ? streak : 0;
     }
 
     async getLeaderboard(userId?: string) {
@@ -525,12 +520,28 @@ export class UsersService {
             .limit(100)
             .select(projection)
             .exec();
-        const topStreaks = await this.userModel
+        const streakCandidates = await this.userModel
             .find(filter)
-            .sort({ streak: -1, _id: 1 })
-            .limit(100)
-            .select(projection)
+            .select(`${projection} lastStreakDate role`)
             .exec();
+
+        const sortedByLiveStreak = streakCandidates
+            .map((user) => {
+                const obj = user.toObject();
+                return {
+                    ...obj,
+                    streak: this.getLiveStreakValue(
+                        obj.streak || 0,
+                        obj.lastStreakDate || null,
+                    ),
+                };
+            })
+            .sort((a: any, b: any) => {
+                if (b.streak !== a.streak) return b.streak - a.streak;
+                return String(a._id).localeCompare(String(b._id));
+            });
+
+        const topStreaks = sortedByLiveStreak.slice(0, 100);
 
         const topStudentsWithChange = topStudents.map((user, index) => {
             const currentRank = index + 1;
@@ -542,11 +553,11 @@ export class UsersService {
             };
         });
 
-        const topStreaksWithChange = topStreaks.map((user, index) => {
+        const topStreaksWithChange = topStreaks.map((user: any, index) => {
             const currentRank = index + 1;
             const prev = user.previousStreakRank || currentRank;
             return {
-                ...user.toObject(),
+                ...user,
                 rank: currentRank,
                 rankChange: prev - currentRank,
             };
@@ -572,7 +583,10 @@ export class UsersService {
                     };
                 } else {
                     const userPoints = user.points ?? 0;
-                    const userStreak = user.streak ?? 0;
+                    const userStreak = this.getLiveStreakValue(
+                        user.streak ?? 0,
+                        user.lastStreakDate || null,
+                    );
 
                     const xpRank =
                         (await this.userModel.countDocuments({
@@ -584,13 +598,9 @@ export class UsersService {
                         })) + 1;
 
                     const streakRank =
-                        (await this.userModel.countDocuments({
-                            ...filter,
-                            $or: [
-                                { streak: { $gt: userStreak } },
-                                { streak: userStreak, _id: { $lt: user._id } },
-                            ],
-                        })) + 1;
+                        sortedByLiveStreak.findIndex(
+                            (u: any) => String(u._id) === String(user._id),
+                        ) + 1;
 
                     userRank = {
                         xp: xpRank.toString(),

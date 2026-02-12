@@ -10,11 +10,14 @@ import {
     InternalServerErrorException,
     UseGuards,
     Req,
+    UseInterceptors,
+    UploadedFile,
 } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { UsersService } from '../users/users.service';
 import { Observable, from } from 'rxjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('api/ai')
 export class AiController {
@@ -53,14 +56,22 @@ export class AiController {
 
     @UseGuards(JwtAuthGuard)
     @Post('chat')
-    async chat(@Body('message') message: string, @Req() req: any) {
+    async chat(
+        @Body('message') message: string,
+        @Body('documentId') documentId: string | undefined,
+        @Req() req: any,
+    ) {
         try {
             const userId = req.user.userId;
             if (!message) throw new BadRequestException('message is required');
 
             await this.usersService.checkActivityLimit(userId, 'dailyMessages');
             await this.aiService.saveMessage(userId, 'user', message);
-            const response = await this.aiService.getResponse(message, userId);
+            const response = await this.aiService.getResponse(
+                message,
+                userId,
+                documentId,
+            );
             await this.aiService.saveMessage(userId, 'assistant', response);
             await this.usersService.incrementActivityCount(
                 userId,
@@ -80,6 +91,7 @@ export class AiController {
     @Sse('stream')
     stream(
         @Query('message') message: string,
+        @Query('documentId') documentId: string | undefined,
         @Req() req: any,
     ): Observable<MessageEvent> {
         const userId = req.user.userId;
@@ -93,7 +105,11 @@ export class AiController {
             this.aiService.saveMessage(userIdToUse, 'user', message);
 
             const stream = from(
-                this.aiService.getResponseStream(message, userIdToUse),
+                this.aiService.getResponseStream(
+                    message,
+                    userIdToUse,
+                    documentId,
+                ),
             );
             const subscription = stream.subscribe({
                 next: (event: any) => {
@@ -119,5 +135,38 @@ export class AiController {
 
             return () => subscription.unsubscribe();
         });
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Post('upload-pdf')
+    @UseInterceptors(
+        FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }),
+    )
+    async uploadPdf(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
+        try {
+            if (!file) {
+                throw new BadRequestException('PDF file is required');
+            }
+
+            if (!file.mimetype.includes('pdf')) {
+                throw new BadRequestException('Only PDF files are supported');
+            }
+
+            const userId = req.user.userId;
+            const data = await this.aiService.uploadPdfForChat(userId, file);
+
+            return {
+                success: true,
+                data,
+                message: 'PDF uploaded and indexed for chat',
+            };
+        } catch (error: any) {
+            if (error instanceof BadRequestException) {
+                throw error;
+            }
+            throw new InternalServerErrorException(
+                error.message || 'Failed to upload PDF',
+            );
+        }
     }
 }

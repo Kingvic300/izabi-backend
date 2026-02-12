@@ -355,3 +355,290 @@ export const getLiveAnnouncementTemplate = (name: string): string => {
 </html>
 `;
 };
+
+const formatAuditDate = (date?: Date) => {
+    if (!date) return 'N/A';
+    const d = new Date(date);
+    return d.toISOString().replace('T', ' ').replace('Z', ' UTC');
+};
+
+const sanitize = (value?: string) =>
+    (value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+const severityColor = (severity?: string) => {
+    switch (severity) {
+        case 'CRITICAL':
+            return '#dc2626';
+        case 'HIGH':
+            return '#ea580c';
+        case 'MEDIUM':
+            return '#2563eb';
+        default:
+            return '#64748b';
+    }
+};
+
+const outcomeColor = (outcome?: string) => {
+    return outcome === 'SUCCESS' ? '#16a34a' : '#dc2626';
+};
+
+const auditBaseStyles = `
+    body { margin: 0; padding: 0; background: #0b1220; color: #e2e8f0; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .wrapper { width: 100%; background: #0b1220; padding: 32px 16px; }
+    .container { max-width: 720px; margin: 0 auto; background: #0f172a; border: 1px solid #1f2937; border-radius: 20px; overflow: hidden; }
+    .header { padding: 28px 32px; background: linear-gradient(135deg, rgba(15,23,42,0.95), rgba(2,6,23,0.95)); border-bottom: 1px solid #1f2937; }
+    .brand { font-size: 20px; font-weight: 800; letter-spacing: 2px; color: #e2e8f0; }
+    .brand span { color: #38bdf8; }
+    .title { font-size: 22px; font-weight: 700; margin: 8px 0 0; color: #f8fafc; }
+    .subtle { color: #94a3b8; font-size: 13px; }
+    .section { padding: 24px 32px; border-bottom: 1px solid #1f2937; }
+    .label { text-transform: uppercase; letter-spacing: 2px; font-size: 11px; font-weight: 700; color: #94a3b8; margin-bottom: 10px; }
+    .card { background: #111c2e; border: 1px solid #1f2937; border-radius: 14px; padding: 16px; }
+    .stat-row { display: table; width: 100%; }
+    .stat { display: table-cell; padding: 12px 0; }
+    .stat-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #94a3b8; margin-bottom: 6px; }
+    .stat-value { font-size: 14px; font-weight: 700; color: #f8fafc; }
+    .pill { display: inline-block; padding: 6px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; padding: 10px 0; border-bottom: 1px solid #1f2937; }
+    .table td { font-size: 13px; color: #e2e8f0; padding: 10px 0; border-bottom: 1px solid #1f2937; vertical-align: top; }
+    .muted { color: #94a3b8; font-size: 12px; }
+    .footer { padding: 20px 32px; background: #0b1220; color: #64748b; font-size: 12px; text-align: center; }
+`;
+
+export const getAuditAlertTemplate = (log: any): string => {
+    const severity = sanitize(log?.severity || 'UNKNOWN');
+    const outcome = sanitize(log?.outcome || 'UNKNOWN');
+    const action = sanitize(log?.action || 'N/A');
+    const route = sanitize(
+        `${log?.request?.method || ''} ${log?.request?.route || ''}`.trim(),
+    );
+    const user = log?.user || {};
+    const userName = sanitize(user.fullName || 'Unknown User');
+    const userEmail = sanitize(user.email || 'unknown@izabi.ai');
+    const userRole = sanitize(user.role || 'unknown');
+    const userPlan = sanitize(user.plan || 'unknown');
+
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Audit Alert</title>
+  <style>${auditBaseStyles}</style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <div class="brand">IZABI<span>.</span></div>
+        <div class="title">Security Audit Alert</div>
+        <div class="subtle">Immediate attention required • ${formatAuditDate(
+            log?.createdAt,
+        )}</div>
+      </div>
+
+      <div class="section">
+        <div class="label">Event Summary</div>
+        <div class="card">
+          <div class="stat-row">
+            <div class="stat">
+              <div class="stat-title">Severity</div>
+              <div class="stat-value">
+                <span class="pill" style="background: ${severityColor(
+                    severity,
+                )}; color: #0b1220;">${severity}</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Outcome</div>
+              <div class="stat-value">
+                <span class="pill" style="background: ${outcomeColor(
+                    outcome,
+                )}; color: #0b1220;">${outcome}</span>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Action</div>
+              <div class="stat-value">${action}</div>
+            </div>
+          </div>
+          <div class="muted" style="margin-top: 10px;">
+            Route: ${route || 'N/A'}
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label">User Profile</div>
+        <div class="card">
+          <div class="stat-row">
+            <div class="stat">
+              <div class="stat-title">User</div>
+              <div class="stat-value">${userName}</div>
+              <div class="muted">${userEmail}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Role</div>
+              <div class="stat-value">${userRole}</div>
+              <div class="muted">Plan: ${userPlan}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Last Activity</div>
+              <div class="stat-value">${formatAuditDate(
+                  user.lastActivity,
+              )}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label">Request Context</div>
+        <div class="card">
+          <div class="muted">IP Address</div>
+          <div class="stat-value">${sanitize(
+              user.ipAddress || 'N/A',
+          )}</div>
+          <div class="muted" style="margin-top: 10px;">User Agent</div>
+          <div class="stat-value">${sanitize(
+              user.userAgent || 'N/A',
+          )}</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        This is an automated security notification from Izabi Audit.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+`;
+};
+
+export const getAuditDigestTemplate = ({
+    subject,
+    description,
+    totalEvents,
+    grouped,
+    events,
+}: {
+    subject: string;
+    description: string;
+    totalEvents: number;
+    grouped: Record<string, number>;
+    events: any[];
+}): string => {
+    const summaryRows = Object.entries(grouped)
+        .map(
+            ([action, count]) => `
+            <tr>
+              <td>${sanitize(action)}</td>
+              <td style="text-align: right;">${count}</td>
+            </tr>
+        `,
+        )
+        .join('');
+
+    const detailRows = events
+        .map((event) => {
+            const time = formatAuditDate(event?.createdAt);
+            const user = sanitize(event?.user?.fullName || 'Unknown');
+            const email = sanitize(event?.user?.email || 'unknown@izabi.ai');
+            const action = sanitize(event?.action || 'N/A');
+            const outcome = sanitize(event?.outcome || 'UNKNOWN');
+            return `
+            <tr>
+              <td>${time}</td>
+              <td>${user}<div class="muted">${email}</div></td>
+              <td>${action}</td>
+              <td><span class="pill" style="background: ${outcomeColor(
+                  outcome,
+              )}; color: #0b1220;">${outcome}</span></td>
+            </tr>
+        `;
+        })
+        .join('');
+
+    return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>${sanitize(subject)}</title>
+  <style>${auditBaseStyles}</style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <div class="brand">IZABI<span>.</span></div>
+        <div class="title">${sanitize(subject)}</div>
+        <div class="subtle">${sanitize(description)}</div>
+      </div>
+
+      <div class="section">
+        <div class="label">Digest Summary</div>
+        <div class="card">
+          <div class="stat-row">
+            <div class="stat">
+              <div class="stat-title">Total Events</div>
+              <div class="stat-value">${totalEvents}</div>
+            </div>
+            <div class="stat">
+              <div class="stat-title">Generated At</div>
+              <div class="stat-value">${formatAuditDate(new Date())}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="label">Summary By Action</div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Action</th>
+              <th style="text-align: right;">Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${summaryRows}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="label">Detailed Event Log</div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Timestamp (UTC)</th>
+              <th>User</th>
+              <th>Action</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${detailRows}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="footer">
+        Confidential report • Izabi Audit System
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+`;
+};

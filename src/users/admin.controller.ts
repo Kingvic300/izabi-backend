@@ -14,6 +14,8 @@ import { QuizService } from '../quiz/quiz.service';
 @Controller('api/admin')
 @UseGuards(JwtAuthGuard)
 export class AdminController {
+    private readonly STREAK_RESET_WINDOW_MS = 24 * 60 * 60 * 1000;
+
     constructor(
         private readonly usersService: UsersService,
         private readonly notesService: NotesService,
@@ -22,30 +24,12 @@ export class AdminController {
 
     /**
      * Helper to calculate a live streak from raw DB data.
-     * Aligns with UsersService UTC Midnight logic.
+     * Aligns with UsersService rolling 24-hour logic.
      */
     private calculateLiveStreak(streak: number, lastDate: Date | null): number {
         if (!lastDate) return 0;
-        const now = new Date();
-
-        // Normalize to UTC Midnight (consistent with UsersService)
-        const todayUTC = Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            now.getUTCDate(),
-        );
-        const lastUTC = Date.UTC(
-            lastDate.getUTCFullYear(),
-            lastDate.getUTCMonth(),
-            lastDate.getUTCDate(),
-        );
-
-        const diffDays = Math.floor(
-            (todayUTC - lastUTC) / (1000 * 60 * 60 * 24),
-        );
-
-        // If they were active today (0) or yesterday (1), streak is alive.
-        return diffDays <= 1 ? streak || 0 : 0;
+        const diffMs = new Date().getTime() - new Date(lastDate).getTime();
+        return diffMs <= this.STREAK_RESET_WINDOW_MS ? streak || 0 : 0;
     }
 
     /**
