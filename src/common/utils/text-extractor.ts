@@ -1,11 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import * as mammoth from 'mammoth';
 import { createWorker } from 'tesseract.js';
+import { MAX_UPLOAD_SIZE_MB } from '../constants/upload.constants';
 
 // Optimal limits for high-speed processing on Render
 const MAX_EXTRACTION_CHARS = 700000;
 const MAX_PDF_PAGES = 300;
-const MAX_FILE_SIZE_MB = 100;
 
 const isPdfFile = (file: Express.Multer.File): boolean => {
     const mime = (file.mimetype || '').toLowerCase();
@@ -20,6 +20,76 @@ const loadPdfJs = async (): Promise<any> => {
     } catch {
         return await import('pdfjs-dist/build/pdf.mjs');
     }
+};
+
+const loadModernPdfJs = async (): Promise<any> => {
+    try {
+        return await import('pdfjs-dist/build/pdf.mjs');
+    } catch {
+        return await import('pdfjs-dist/legacy/build/pdf.mjs');
+    }
+};
+
+const tryExtractTextFromPdf = async (
+    file: Express.Multer.File,
+    pdfjs: any,
+    strategy: 'compat' | 'strict',
+) => {
+    const doc = await pdfjs.getDocument({
+        data: new Uint8Array(file.buffer),
+        useSystemFonts: strategy === 'compat',
+        disableFontFace: strategy === 'compat',
+    }).promise;
+
+    const numPages = Math.min(doc.numPages, MAX_PDF_PAGES);
+    let fullText = '';
+    let pagesWithText = 0;
+    let failedPages = 0;
+
+    for (let i = 1; i <= numPages; i++) {
+        try {
+            const page = await doc.getPage(i);
+            const content = await page.getTextContent();
+            const strings = content.items
+                .map((item: any) =>
+                    typeof item?.str === 'string' ? item.str : '',
+                )
+                .filter(Boolean);
+
+            if (strings.length > 0) {
+                fullText += strings.join(' ') + '\n';
+                pagesWithText += 1;
+            }
+        } catch {
+            failedPages += 1;
+        }
+    }
+
+    return {
+        text: fullText,
+        numPages,
+        pagesWithText,
+        failedPages,
+    };
+};
+
+const extractTextFallbackFromPdfBinary = (buffer: Buffer): string => {
+    const raw = buffer.toString('latin1');
+    const segments =
+        raw.match(
+            /[A-Za-z][A-Za-z0-9,.;:'"()\-_/+\s]{5,160}/g,
+        ) || [];
+
+    const cleaned = segments
+        .map((segment) => segment.replace(/\s+/g, ' ').trim())
+        .filter(
+            (segment) =>
+                segment.length >= 8 &&
+                /[aeiouAEIOU]/.test(segment) &&
+                !/[<>{}\[\]\\]/.test(segment),
+        );
+
+    return cleaned.slice(0, 3000).join(' ');
 };
 
 /**
@@ -76,9 +146,9 @@ export const extractTextFromFile = async (
         }
 
         const fileSizeMB = file.buffer.length / (1024 * 1024);
-        if (fileSizeMB > MAX_FILE_SIZE_MB) {
+        if (fileSizeMB > MAX_UPLOAD_SIZE_MB) {
             throw new BadRequestException(
-                `File too large (${fileSizeMB.toFixed(1)}MB). Max allowed is ${MAX_FILE_SIZE_MB}MB.`,
+                `File too large (${fileSizeMB.toFixed(1)}MB). Max allowed is ${MAX_UPLOAD_SIZE_MB}MB.`,
             );
         }
 
@@ -88,28 +158,53 @@ export const extractTextFromFile = async (
         );
 
         if (isPdfFile(file)) {
-            const pdfjs = await loadPdfJs();
+            // Strategy 1: Legacy/compat extraction
+            const legacyPdfJs = await loadPdfJs();
+            const legacyResult = await tryExtractTextFromPdf(
+                file,
+                legacyPdfJs,
+                'compat',
+            );
+            extractedText = legacyResult.text;
+            console.log(
+                `[DocumentNode] PDF extracted (compat): ${legacyResult.numPages} pages, ${legacyResult.pagesWithText} pages with text, ${legacyResult.failedPages} failed pages, ${extractedText.length} chars`,
+            );
 
-            const doc = await pdfjs.getDocument({
-                data: new Uint8Array(file.buffer),
-                useSystemFonts: true,
-                disableFontFace: true,
-            }).promise;
-
-            const numPages = Math.min(doc.numPages, MAX_PDF_PAGES);
-            let fullText = '';
-
-            for (let i = 1; i <= numPages; i++) {
-                const page = await doc.getPage(i);
-                const content = await page.getTextContent();
-                const strings = content.items.map((item: any) => item.str);
-                fullText += strings.join(' ') + '\n';
+            // Strategy 2: Modern/strict fallback if compat yielded almost nothing
+            if (extractedText.trim().length < 10) {
+                try {
+                    const modernPdfJs = await loadModernPdfJs();
+                    const modernResult = await tryExtractTextFromPdf(
+                        file,
+                        modernPdfJs,
+                        'strict',
+                    );
+                    if (modernResult.text.trim().length > extractedText.length) {
+                        extractedText = modernResult.text;
+                    }
+                    console.log(
+                        `[DocumentNode] PDF fallback (strict): ${modernResult.numPages} pages, ${modernResult.pagesWithText} pages with text, ${modernResult.failedPages} failed pages, ${modernResult.text.length} chars`,
+                    );
+                } catch (fallbackErr) {
+                    console.warn(
+                        '[DocumentNode] PDF strict fallback failed:',
+                        fallbackErr,
+                    );
+                }
             }
 
-            extractedText = fullText;
-            console.log(
-                `[DocumentNode] PDF extracted: ${numPages} pages, ${extractedText.length} chars`,
-            );
+            // Strategy 3: Raw binary text sniffing for unusual PDFs
+            if (extractedText.trim().length < 10) {
+                const binaryFallback = extractTextFallbackFromPdfBinary(
+                    file.buffer,
+                );
+                if (binaryFallback.trim().length > extractedText.trim().length) {
+                    extractedText = binaryFallback;
+                    console.log(
+                        `[DocumentNode] PDF binary fallback recovered ${binaryFallback.length} chars`,
+                    );
+                }
+            }
         } else if (mime === 'text/plain') {
             extractedText = file.buffer.toString('utf-8');
         } else if (
@@ -144,7 +239,7 @@ export const extractTextFromFile = async (
 
         if (!extractedText?.trim()) {
             throw new BadRequestException(
-                'Extraction failed: Document appears empty or non-extractable.',
+                'Could not read text from this file. It may be an image-only scan. Please upload a clearer text-based document or convert scanned pages to image files (PNG/JPG) for OCR.',
             );
         }
 

@@ -18,6 +18,7 @@ import { UsersService } from '../users/users.service';
 import { Observable, from } from 'rxjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { MAX_UPLOAD_SIZE_BYTES } from '../common/constants/upload.constants';
 
 @Controller('api/ai')
 export class AiController {
@@ -140,7 +141,7 @@ export class AiController {
     @UseGuards(JwtAuthGuard)
     @Post('upload-pdf')
     @UseInterceptors(
-        FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }),
+        FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
     )
     async uploadPdf(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
         try {

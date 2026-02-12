@@ -15,7 +15,7 @@ export class AuditScheduler {
 
     // HOW: Minimum intervals for job execution
     // WHY: Enforces business logic even if external trigger (UptimeRobot) is more frequent
-    private readonly MEDIUM_INTERVAL_MS = 15 * 60 * 1000;
+    private readonly MEDIUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
     private readonly LOW_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
     constructor(
@@ -32,7 +32,7 @@ export class AuditScheduler {
     }
 
     // HOW: Triggered by internal cron or external HTTP call
-    // WHY: UptimeRobot calls this every 5 mins, but logic only runs every 15 mins
+    // WHY: UptimeRobot may call this every 5 mins, but logic only runs once every 24h
     @Cron('*/5 * * * *') // Run check every 5 mins internally as fallback
     async handleMediumDigest(isExternal = false) {
         if (
@@ -57,9 +57,9 @@ export class AuditScheduler {
 
         try {
             await this.sendDigest(
-                'MEDIUM Severity Activity Digest (15 min)',
+                'MEDIUM Severity Activity Digest (24h)',
                 events,
-                'Activity summary for the last 15 minutes.',
+                'Activity summary for the last 24 hours.',
             );
             await this.updateLastRun(
                 'medium-digest',

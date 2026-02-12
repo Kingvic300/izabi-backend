@@ -2,6 +2,8 @@ import {
     Injectable,
     UnauthorizedException,
     ConflictException,
+    BadRequestException,
+    InternalServerErrorException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
@@ -124,12 +126,15 @@ export class AuthService {
 
     async sendOtp(
         email: string,
-        pass: string,
-        role: string,
+        pass?: string,
+        role: string = 'USER',
         firstName?: string,
         lastName?: string,
     ) {
-        const normalizedEmail = email.toLowerCase();
+        const normalizedEmail = (email || '').trim().toLowerCase();
+        if (!normalizedEmail) {
+            throw new BadRequestException('Email is required');
+        }
 
         const existingUser =
             await this.usersService.findByEmail(normalizedEmail);
@@ -137,10 +142,26 @@ export class AuthService {
             throw new ConflictException('User already exists');
         }
 
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+        const now = new Date();
+        const hasValidOtp =
+            Boolean(existingUser?.otp) &&
+            Boolean(existingUser?.otpExpires) &&
+            now < new Date(existingUser!.otpExpires);
+
+        const otp = hasValidOtp
+            ? existingUser!.otp
+            : Math.floor(100000 + Math.random() * 900000).toString();
+        const expires = hasValidOtp
+            ? existingUser!.otpExpires
+            : new Date(now.getTime() + 10 * 60 * 1000); // 10 mins
 
         if (!existingUser) {
+            if (!pass || !pass.trim()) {
+                throw new BadRequestException(
+                    'Password is required for new account verification',
+                );
+            }
+
             await this.usersService.create({
                 email: normalizedEmail,
                 password: pass,
@@ -149,11 +170,13 @@ export class AuthService {
                 lastName,
             });
         } else {
-            const hashedPassword = await bcrypt.hash(pass, 10);
-            await this.usersService.updatePassword(
-                existingUser._id.toString(),
-                hashedPassword,
-            );
+            if (pass && pass.trim()) {
+                const hashedPassword = await bcrypt.hash(pass, 10);
+                await this.usersService.updatePassword(
+                    existingUser._id.toString(),
+                    hashedPassword,
+                );
+            }
 
             if (firstName || lastName) {
                 await this.usersService.updateProfile(
@@ -166,7 +189,9 @@ export class AuthService {
             }
         }
 
-        await this.usersService.updateOtp(normalizedEmail, otp, expires);
+        if (!hasValidOtp) {
+            await this.usersService.updateOtp(normalizedEmail, otp, expires);
+        }
 
         try {
             await this.mailService.sendOtp(normalizedEmail, otp);
@@ -175,12 +200,15 @@ export class AuthService {
                 `[OTP] Failed to send email to ${normalizedEmail}:`,
                 error,
             );
-            throw new Error(
+            throw new InternalServerErrorException(
                 'Failed to send verification email. Please try again later.',
             );
         }
 
-        return { message: 'OTP sent' };
+        return {
+            message: 'OTP sent',
+            expiresAt: expires,
+        };
     }
 
     async register(email: string, otp: string) {

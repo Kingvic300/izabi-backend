@@ -21,6 +21,7 @@ import { UsersService } from '../users/users.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { STUDY_PROMPTS } from './study.prompts';
 import { IngestTextDto } from './dto/ingest-text.dto';
+import { MAX_UPLOAD_SIZE_BYTES } from '../common/constants/upload.constants';
 
 @Controller('api/study')
 export class StudyController {
@@ -58,7 +59,7 @@ export class StudyController {
     @UseGuards(JwtAuthGuard)
     @Post('summarize')
     @UseInterceptors(
-        FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }),
+        FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
     )
     async summarize(
         @UploadedFile() file: Express.Multer.File,
@@ -74,7 +75,7 @@ export class StudyController {
     @UseGuards(JwtAuthGuard)
     @Post('flashcards')
     @UseInterceptors(
-        FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }),
+        FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
     )
     async generateFlashcards(
         @UploadedFile() file: Express.Multer.File,
@@ -90,7 +91,7 @@ export class StudyController {
     @UseGuards(JwtAuthGuard)
     @Post('generate-questions')
     @UseInterceptors(
-        FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }),
+        FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
     )
     async generateQuestions(
         @UploadedFile() file: Express.Multer.File,
@@ -111,7 +112,7 @@ export class StudyController {
     @UseGuards(JwtAuthGuard)
     @Post('generate-study-material')
     @UseInterceptors(
-        FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }),
+        FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
     )
     async generateStudyMaterial(
         @UploadedFile() file: Express.Multer.File,
@@ -129,7 +130,7 @@ export class StudyController {
     @UseGuards(JwtAuthGuard)
     @Post('ingest-direct')
     @UseInterceptors(
-        FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }),
+        FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
     )
     async ingestDirect(
         @UploadedFile() file: Express.Multer.File,
@@ -196,7 +197,7 @@ export class StudyController {
     @UseGuards(JwtAuthGuard)
     @Post('analyze-pdf')
     @UseInterceptors(
-        FileInterceptor('file', { limits: { fileSize: 100 * 1024 * 1024 } }),
+        FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
     )
     async analyzePDF(
         @UploadedFile() file: Express.Multer.File,
