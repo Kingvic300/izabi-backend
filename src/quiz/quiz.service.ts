@@ -322,14 +322,41 @@ export class QuizService {
     }
 
     async create(userId: string, data: any) {
-        const res = new this.quizModel({ ...data, userId });
+        const score = Number(data?.score);
+        const totalQuestions = Number(data?.totalQuestions);
+        const correctAnswers = Number(data?.correctAnswers);
+        const quizTitle =
+            (typeof data?.quizTitle === 'string' && data.quizTitle.trim()) ||
+            (typeof data?.subject === 'string' && data.subject.trim()) ||
+            'Practice Quiz';
+
+        if (!Number.isFinite(score) || !Number.isFinite(totalQuestions)) {
+            throw new BadRequestException(
+                'score and totalQuestions are required numeric fields.',
+            );
+        }
+
+        const res = new this.quizModel({
+            userId,
+            quizTitle,
+            score,
+            totalQuestions,
+            details: {
+                ...(data?.details || {}),
+                correctAnswers: Number.isFinite(correctAnswers)
+                    ? correctAnswers
+                    : undefined,
+                submittedAt: data?.date || new Date().toISOString(),
+                source: data?.subject || data?.quizTitle || 'quiz',
+            },
+        });
         const saved = await res.save();
 
         // Award points and update streaks automatically on any quiz submission
         let pointsToAdd = 0;
-        if (data.score >= 50) {
-            pointsToAdd = data.subject === 'Brain Drop' ? 20 : 50;
-            if (data.score === 100 && data.subject !== 'Brain Drop')
+        if (score >= 50) {
+            pointsToAdd = quizTitle === 'Brain Drop' ? 20 : 50;
+            if (score === 100 && quizTitle !== 'Brain Drop')
                 pointsToAdd = 100;
 
             await this.usersService.addPoints(userId, pointsToAdd, 'quizzes');
