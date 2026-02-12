@@ -10,9 +10,12 @@ import {
     UseGuards,
     Request,
     BadRequestException,
+    NotFoundException,
+    InternalServerErrorException,
 } from '@nestjs/common';
 import { NotesService } from './notes.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { isValidObjectId } from 'mongoose';
 
 @Controller('api/notes')
 @UseGuards(JwtAuthGuard)
@@ -24,10 +27,8 @@ export class NotesController {
         try {
             const userId = req.user.userId;
             return await this.notesService.findAll(userId);
-        } catch (error: any) {
-            throw new BadRequestException(
-                error.message || 'Failed to fetch notes',
-            );
+        } catch {
+            throw new InternalServerErrorException('Failed to fetch notes');
         }
     }
 
@@ -36,10 +37,8 @@ export class NotesController {
         try {
             const userId = req.user.userId;
             return await this.notesService.create(userId, data);
-        } catch (error: any) {
-            throw new BadRequestException(
-                error.message || 'Failed to create note',
-            );
+        } catch {
+            throw new BadRequestException('Failed to create note');
         }
     }
 
@@ -50,25 +49,39 @@ export class NotesController {
         @Body() data: any,
     ) {
         try {
+            if (!isValidObjectId(id)) {
+                throw new BadRequestException('Invalid note id');
+            }
             const userId = req.user.userId;
             return await this.notesService.update(id, userId, data);
         } catch (error: any) {
-            throw new BadRequestException(
-                error.message || 'Failed to update note',
-            );
+            if (
+                error instanceof BadRequestException ||
+                error instanceof NotFoundException
+            ) {
+                throw error;
+            }
+            throw new BadRequestException('Failed to update note');
         }
     }
 
     @Delete(':id')
     async remove(@Param('id') id: string, @Request() req: any) {
         try {
+            if (!isValidObjectId(id)) {
+                throw new BadRequestException('Invalid note id');
+            }
             const userId = req.user.userId;
             await this.notesService.remove(id, userId);
             return { success: true, message: 'Note deleted successfully' };
         } catch (error: any) {
-            throw new BadRequestException(
-                error.message || 'Failed to delete note',
-            );
+            if (
+                error instanceof BadRequestException ||
+                error instanceof NotFoundException
+            ) {
+                throw error;
+            }
+            throw new BadRequestException('Failed to delete note');
         }
     }
 }

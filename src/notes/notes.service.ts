@@ -1,6 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+    Injectable,
+    NotFoundException,
+    BadRequestException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { isValidObjectId, Model } from 'mongoose';
 import { Note, NoteDocument } from './entities/note.entity';
 
 @Injectable()
@@ -19,6 +23,9 @@ export class NotesService {
     }
 
     async update(id: string, userId: string, data: any): Promise<NoteDocument> {
+        if (!isValidObjectId(id)) {
+            throw new BadRequestException('Invalid note id');
+        }
         const note = await this.noteModel
             .findOneAndUpdate({ _id: id, userId }, data, { new: true })
             .exec();
@@ -27,6 +34,9 @@ export class NotesService {
     }
 
     async remove(id: string, userId: string): Promise<void> {
+        if (!isValidObjectId(id)) {
+            throw new BadRequestException('Invalid note id');
+        }
         const result = await this.noteModel
             .deleteOne({ _id: id, userId })
             .exec();
