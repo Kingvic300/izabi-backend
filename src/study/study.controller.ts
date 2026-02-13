@@ -97,6 +97,9 @@ export class StudyController {
         @UploadedFile() file: Express.Multer.File,
         @Req() req: any,
         @Body('numberOfQuestions') num: string,
+        @Body('difficulty') difficulty?: string,
+        @Body('questionStyle') questionStyle?: string,
+        @Body('shuffle') shuffle?: boolean,
     ) {
         const count = parseInt(num) || 5;
         return this.studyService.generateMaterial(
@@ -105,6 +108,9 @@ export class StudyController {
             'quiz',
             {
                 count,
+                difficulty,
+                questionStyle,
+                shuffle,
             },
         );
     }

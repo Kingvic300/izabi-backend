@@ -118,6 +118,11 @@ export class AuthService {
         return tokens;
     }
 
+    async logout(userId: string) {
+        await this.updateRefreshToken(userId, null);
+        return { success: true };
+    }
+
     async sendOtp(
         email: string,
         pass?: string,

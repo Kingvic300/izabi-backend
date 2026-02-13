@@ -27,11 +27,42 @@ RETURN ONLY a JSON array:
 
     QUIZ: (
         count: number,
-    ) => `Generate exactly ${count} Practice Questions based ONLY on the provided context.
+        options?: { difficulty?: string; questionStyle?: string },
+    ) => {
+        const difficulty =
+            options?.difficulty === 'easy' ||
+            options?.difficulty === 'hard' ||
+            options?.difficulty === 'balanced'
+                ? options.difficulty
+                : 'balanced';
+        const style =
+            options?.questionStyle === 'mcq' ||
+            options?.questionStyle === 'short' ||
+            options?.questionStyle === 'mixed'
+                ? options.questionStyle
+                : 'mixed';
+
+        const difficultyRule =
+            difficulty === 'easy'
+                ? 'DIFFICULTY: Easy. Focus on direct recall and definitions.'
+                : difficulty === 'hard'
+                  ? 'DIFFICULTY: Hard. Emphasize application, multi-step reasoning, and tricky distractors.'
+                  : 'DIFFICULTY: Balanced. Mix recall and application questions.';
+
+        const styleRule =
+            style === 'mcq'
+                ? 'STYLE: Only "multiple_choice" questions. Exactly 4 options each. Do NOT include short_answer.'
+                : style === 'short'
+                  ? 'STYLE: Only "short_answer" questions. Options must be null.'
+                  : 'STYLE: Mixed. Use both "multiple_choice" and "short_answer" when possible.';
+
+        return `Generate exactly ${count} Practice Questions based ONLY on the provided context.
 RULES:
 - "multiple_choice" must have exactly 4 options.
 - "short_answer" must have a null options array.
 - Distractors must be plausible but clearly incorrect based on the text.
+${difficultyRule}
+${styleRule}
 RETURN ONLY a JSON array:
 [
     {
@@ -41,7 +72,8 @@ RETURN ONLY a JSON array:
         "questionType": "multiple_choice" | "short_answer",
         "explanation": "Verbatim link to the context explaining why this is correct."
     }
-]`,
+ ]`;
+    },
 
     STUDY_GUIDE: `Act as a Curriculum Designer. Create a structured Study Guide from this material.
 RULES:

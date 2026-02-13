@@ -38,6 +38,12 @@ export class StudyService {
         let points = 0;
         let actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards' =
             'summaries';
+        let quizOptions: {
+            count: number;
+            difficulty: 'easy' | 'balanced' | 'hard';
+            questionStyle: 'mixed' | 'mcq' | 'short';
+            shuffle: boolean;
+        } | null = null;
 
         switch (type) {
             case 'summary':
@@ -51,7 +57,8 @@ export class StudyService {
                 actionType = 'flashcards';
                 break;
             case 'quiz':
-                prompt = STUDY_PROMPTS.QUIZ(options?.count || 5);
+                quizOptions = this.normalizeQuizOptions(options);
+                prompt = STUDY_PROMPTS.QUIZ(quizOptions.count, quizOptions);
                 points = 20;
                 actionType = 'quizzes';
                 break;
@@ -61,7 +68,25 @@ export class StudyService {
                 actionType = 'guides';
                 break;
         }
-        return { prompt, points, actionType };
+        return { prompt, points, actionType, quizOptions };
+    }
+
+    private normalizeQuizOptions(options?: any) {
+        const count = Math.max(1, Number(options?.count) || 5);
+        const difficulty =
+            options?.difficulty === 'easy' ||
+            options?.difficulty === 'hard' ||
+            options?.difficulty === 'balanced'
+                ? options.difficulty
+                : 'balanced';
+        const questionStyle =
+            options?.questionStyle === 'mcq' ||
+            options?.questionStyle === 'short' ||
+            options?.questionStyle === 'mixed'
+                ? options.questionStyle
+                : 'mixed';
+        const shuffle = Boolean(options?.shuffle);
+        return { count, difficulty, questionStyle, shuffle };
     }
 
     // HOW: Initiates processing for a file uploaded directly to the backend
@@ -92,9 +117,18 @@ export class StudyService {
         const docHash = this.aiService.generateHash(extractedText);
 
         // 2. Cache Interception
-        const existing = await this.studyModel
-            .findOne({ docHash, type: data.type, status: 'COMPLETED' })
-            .exec();
+        const cacheQuery: any = {
+            docHash,
+            type: data.type,
+            status: 'COMPLETED',
+        };
+        if (data.type === 'quiz' && config.quizOptions) {
+            cacheQuery['metadata.quizOptionsHash'] =
+                this.aiService.generateHash(
+                    JSON.stringify(config.quizOptions),
+                );
+        }
+        const existing = await this.studyModel.findOne(cacheQuery).exec();
         if (existing) {
             const history = await this.create(userId, {
                 fileName: file.originalname,
@@ -128,6 +162,13 @@ export class StudyService {
                 timestamp: new Date().toISOString(),
             },
         });
+        if (data.type === 'quiz' && config.quizOptions) {
+            (history.metadata as any).quizOptions = config.quizOptions;
+            (history.metadata as any).quizOptionsHash =
+                this.aiService.generateHash(
+                    JSON.stringify(config.quizOptions),
+                );
+        }
 
         this.processBackgroundDirect(history, file, config).catch((err) => {
             console.error(
@@ -215,9 +256,18 @@ export class StudyService {
         const docHash = this.aiService.generateHash(data.text);
 
         // Cache lookup
-        const existing = await this.studyModel
-            .findOne({ docHash, type: data.type, status: 'COMPLETED' })
-            .exec();
+        const textCacheQuery: any = {
+            docHash,
+            type: data.type,
+            status: 'COMPLETED',
+        };
+        if (data.type === 'quiz' && config.quizOptions) {
+            textCacheQuery['metadata.quizOptionsHash'] =
+                this.aiService.generateHash(
+                    JSON.stringify(config.quizOptions),
+                );
+        }
+        const existing = await this.studyModel.findOne(textCacheQuery).exec();
         if (existing) {
             const history = await this.create(userId, {
                 fileName: data.fileName,
@@ -247,6 +297,13 @@ export class StudyService {
                 timestamp: new Date().toISOString(),
             },
         });
+        if (data.type === 'quiz' && config.quizOptions) {
+            (history.metadata as any).quizOptions = config.quizOptions;
+            (history.metadata as any).quizOptionsHash =
+                this.aiService.generateHash(
+                    JSON.stringify(config.quizOptions),
+                );
+        }
 
         this.processBackgroundText(history, data.text, config).catch((err) => {
             console.error(
@@ -343,7 +400,31 @@ export class StudyService {
         }
 
         if (type === 'flashcards') history.flashcards = parsedData;
-        else if (type === 'quiz') history.questions = parsedData;
+        else if (type === 'quiz') {
+            let questions = Array.isArray(parsedData) ? parsedData : [];
+            const quizOptions = config?.quizOptions || null;
+            if (quizOptions?.questionStyle === 'mcq') {
+                questions = questions.filter(
+                    (q: any) =>
+                        q.questionType?.toLowerCase() !== 'short_answer',
+                );
+            } else if (quizOptions?.questionStyle === 'short') {
+                questions = questions.filter(
+                    (q: any) =>
+                        q.questionType?.toLowerCase() === 'short_answer',
+                );
+            }
+            if (quizOptions?.shuffle) {
+                questions = questions
+                    .map((q: any) => ({ q, sort: Math.random() }))
+                    .sort((a: any, b: any) => a.sort - b.sort)
+                    .map((item: any) => item.q);
+            }
+            if (quizOptions?.count) {
+                questions = questions.slice(0, quizOptions.count);
+            }
+            history.questions = questions;
+        }
         else (history as any).summary = parsedData;
 
         history.status = 'COMPLETED';
@@ -362,7 +443,12 @@ export class StudyService {
         userId: string,
         file: Express.Multer.File,
         type: 'summary' | 'flashcards' | 'quiz' | 'study-guide',
-        options?: { count?: number },
+        options?: {
+            count?: number;
+            difficulty?: string;
+            questionStyle?: string;
+            shuffle?: boolean;
+        },
     ) {
         try {
             if (!file) throw new BadRequestException('File is required');
@@ -385,11 +471,20 @@ export class StudyService {
             const docHash = this.aiService.generateHash(extractedText);
 
             // 2. CHECK CACHE (Global wisdom reuse)
+            const cacheQuery: any = {
+                docHash,
+                type,
+                status: 'COMPLETED',
+            };
+            if (type === 'quiz' && config.quizOptions) {
+                cacheQuery['metadata.quizOptionsHash'] =
+                    this.aiService.generateHash(
+                        JSON.stringify(config.quizOptions),
+                    );
+            }
             const existing = await this.studyModel
                 .findOne({
-                    docHash,
-                    type,
-                    status: 'COMPLETED',
+                    ...cacheQuery,
                 })
                 .sort({ createdAt: -1 })
                 .exec();
@@ -471,6 +566,13 @@ export class StudyService {
                     protocol: 'DEEPLAYER_v3',
                 },
             };
+            if (type === 'quiz' && config.quizOptions) {
+                historyData.metadata.quizOptions = config.quizOptions;
+                historyData.metadata.quizOptionsHash =
+                    this.aiService.generateHash(
+                        JSON.stringify(config.quizOptions),
+                    );
+            }
 
             history.set(historyData);
             await this.finalizeMaterial(history, responseText, type, config);
