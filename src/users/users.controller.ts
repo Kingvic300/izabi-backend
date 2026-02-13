@@ -182,8 +182,4 @@ export class UsersController {
         return { success: true, message: 'API key updated' };
     }
 
-    @Post('logout')
-    async logout() {
-        return { success: true, message: 'Logged out successfully' };
-    }
 }
