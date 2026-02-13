@@ -99,7 +99,11 @@ export class AiController {
             priority: 0,
         });
 
-        return { success: true, jobId: job.id, status: job.status };
+        return {
+            success: true,
+            jobId: job._id?.toString?.() ?? job._id,
+            status: job.status,
+        };
     }
 
     @UseGuards(JwtAuthGuard)
