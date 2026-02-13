@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as SibApiV3Sdk from 'sib-api-v3-sdk';
+import * as nodemailer from 'nodemailer';
 import {
     getOtpEmailTemplate,
     getLiveAnnouncementTemplate,
@@ -8,41 +9,112 @@ import {
 
 @Injectable()
 export class MailService {
-    private apiInstance: any;
+    private apiInstance?: any;
+    private smtpTransport?: nodemailer.Transporter;
+    private readonly mailFrom: string;
+    private readonly deliveryMode: 'smtp' | 'api' | 'none';
 
     constructor(private configService: ConfigService) {
-        const defaultClient = SibApiV3Sdk.ApiClient.instance;
-        const apiKey = defaultClient.authentications['api-key'];
-        apiKey.apiKey = this.configService.get<string>('MAIL_PASS');
-        this.apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+        const mailHost = this.configService.get<string>('MAIL_HOST');
+        const mailPortRaw = this.configService.get<string>('MAIL_PORT');
+        const mailUser = this.configService.get<string>('MAIL_USER');
+        const mailPass = this.configService.get<string>('MAIL_PASS');
+
+        this.mailFrom =
+            this.configService.get<string>('MAIL_FROM') ||
+            mailUser ||
+            'no-reply@izabi.ai';
+
+        if (mailHost && mailPortRaw && mailUser && mailPass) {
+            const mailPort = Number(mailPortRaw);
+            this.smtpTransport = nodemailer.createTransport({
+                host: mailHost,
+                port: mailPort,
+                secure: mailPort === 465,
+                auth: {
+                    user: mailUser,
+                    pass: mailPass,
+                },
+            });
+            this.deliveryMode = 'smtp';
+            console.log(
+                `[MailService] Using SMTP transport (${mailHost}:${mailPort})`,
+            );
+            return;
+        }
+
+        const brevoApiKey =
+            this.configService.get<string>('BREVO_API_KEY') ||
+            this.configService.get<string>('SIB_API_KEY');
+
+        if (brevoApiKey) {
+            const defaultClient = SibApiV3Sdk.ApiClient.instance;
+            const apiKey = defaultClient.authentications['api-key'];
+            apiKey.apiKey = brevoApiKey;
+            this.apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+            this.deliveryMode = 'api';
+            console.log('[MailService] Using Brevo API transport');
+            return;
+        }
+
+        this.deliveryMode = 'none';
+        console.error(
+            '[MailService] No mail transport configured. Set SMTP vars or BREVO_API_KEY.',
+        );
+    }
+
+    private async sendEmail(
+        toEmail: string,
+        subject: string,
+        htmlContent: string,
+        senderName: string,
+    ) {
+        if (this.deliveryMode === 'smtp' && this.smtpTransport) {
+            await this.smtpTransport.sendMail({
+                from: `"${senderName}" <${this.mailFrom}>`,
+                to: toEmail,
+                subject,
+                html: htmlContent,
+            });
+            return;
+        }
+
+        if (this.deliveryMode === 'api' && this.apiInstance) {
+            const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
+            sendSmtpEmail.subject = subject;
+            sendSmtpEmail.htmlContent = htmlContent;
+            sendSmtpEmail.sender = {
+                name: senderName,
+                email: this.mailFrom,
+            };
+            sendSmtpEmail.to = [{ email: toEmail }];
+
+            await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+            return;
+        }
+
+        throw new Error('Mail transport is not configured');
     }
 
     async sendOtp(email: string, otp: string) {
         console.log(
-            `[MailService] Attempting to send OTP via API to ${email}...`,
+            `[MailService] Attempting to send OTP to ${email}...`,
         );
 
-        const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-        sendSmtpEmail.subject = 'Verification Code - Izabi';
-        sendSmtpEmail.htmlContent = getOtpEmailTemplate(otp);
-        sendSmtpEmail.sender = {
-            name: 'Izabi Support',
-            email: this.configService.get<string>('MAIL_FROM'),
-        };
-        sendSmtpEmail.to = [{ email }];
-
         try {
-            const data = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
-            console.log(
-                `[MailService] OTP API call successful:`,
-                data.messageId,
+            await this.sendEmail(
+                email,
+                'Verification Code - Izabi',
+                getOtpEmailTemplate(otp),
+                'Izabi Support',
             );
+            console.log(`[MailService] OTP send successful`);
         } catch (error) {
             console.error(
-                `[MailService] API Error:`,
+                `[MailService] OTP send error:`,
                 error.response?.text || error.message,
             );
-            throw new Error('Failed to send verification email via API.');
+            throw new Error('Failed to send verification email.');
         }
     }
 
@@ -53,20 +125,16 @@ export class MailService {
         subject: string,
         htmlContent: string,
     ) {
-        const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-        sendSmtpEmail.subject = subject;
-        sendSmtpEmail.htmlContent = htmlContent;
-        sendSmtpEmail.sender = {
-            name: 'Izabi System Monitor',
-            email: this.configService.get<string>('MAIL_FROM'),
-        };
-        sendSmtpEmail.to = [{ email: toEmail }];
-
         try {
-            await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+            await this.sendEmail(
+                toEmail,
+                subject,
+                htmlContent,
+                'Izabi System Monitor',
+            );
         } catch (error) {
             console.error(
-                `[MailService] Custom Email API Error:`,
+                `[MailService] Custom Email Error:`,
                 error.response?.text || error.message,
             );
             // No throw here to allow non-blocking audit flow if used in Tap/Tap
@@ -81,17 +149,13 @@ export class MailService {
     ) {
         const { getStreakFreezeTemplate } = require('./mail.templates');
 
-        const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-        sendSmtpEmail.subject = '❄️ Streak Frozen! (Action Required)';
-        sendSmtpEmail.htmlContent = getStreakFreezeTemplate(name, freezesLeft);
-        sendSmtpEmail.sender = {
-            name: 'Izabi Gamification',
-            email: this.configService.get<string>('MAIL_FROM'),
-        };
-        sendSmtpEmail.to = [{ email }];
-
         try {
-            await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+            await this.sendEmail(
+                email,
+                '❄️ Streak Frozen! (Action Required)',
+                getStreakFreezeTemplate(name, freezesLeft),
+                'Izabi Gamification',
+            );
             console.log(`[MailService] Freeze notification sent to ${email}`);
         } catch (error) {
             console.error(
@@ -102,17 +166,13 @@ export class MailService {
     }
 
     async sendLiveAnnouncement(email: string, name: string) {
-        const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-        sendSmtpEmail.subject = '🚀 Izabi is officially LIVE!';
-        sendSmtpEmail.htmlContent = getLiveAnnouncementTemplate(name);
-        sendSmtpEmail.sender = {
-            name: 'Izabi AI',
-            email: this.configService.get<string>('MAIL_FROM'),
-        };
-        sendSmtpEmail.to = [{ email }];
-
         try {
-            await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+            await this.sendEmail(
+                email,
+                '🚀 Izabi is officially LIVE!',
+                getLiveAnnouncementTemplate(name),
+                'Izabi AI',
+            );
             console.log(`[MailService] Live announcement sent to ${email}`);
         } catch (error) {
             console.error(

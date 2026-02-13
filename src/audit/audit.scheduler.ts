@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AuditService } from './audit.service';
@@ -12,11 +12,7 @@ import { getAuditDigestTemplate } from '../mail/mail.templates';
 export class AuditScheduler {
     private readonly logger = new Logger(AuditScheduler.name);
     private readonly ADMIN_EMAIL = 'victor7ishola@gmail.com';
-
-    // HOW: Minimum intervals for job execution
-    // WHY: Enforces business logic even if external trigger (UptimeRobot) is more frequent
-    private readonly MEDIUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
-    private readonly LOW_INTERVAL_MS = 24 * 60 * 60 * 1000;
+    private readonly DAILY_JOB_NAME = 'daily-audit-summary';
 
     constructor(
         private auditService: AuditService,
@@ -32,68 +28,26 @@ export class AuditScheduler {
     }
 
     // HOW: Triggered by internal cron or external HTTP call
-    // WHY: UptimeRobot may call this every 5 mins, but logic only runs once every 24h
-    @Cron('*/5 * * * *') // Run check every 5 mins internally as fallback
-    async handleMediumDigest(isExternal = false) {
-        if (
-            !(await this.shouldRunJob('medium-digest', this.MEDIUM_INTERVAL_MS))
-        ) {
-            return { status: 'skipped', reason: 'Interval not met' };
-        }
-
-        this.logger.log(
-            `Running MEDIUM digest (Trigger: ${isExternal ? 'External' : 'Cron'})...`,
-        );
-        const events = await this.auditService.getUnsentEvents('MEDIUM');
-
-        if (events.length === 0) {
-            await this.updateLastRun(
-                'medium-digest',
-                'SUCCESS',
-                'No events to send',
-            );
-            return { status: 'success', message: 'No events' };
-        }
-
-        try {
-            await this.sendDigest(
-                'MEDIUM Severity Activity Digest (24h)',
-                events,
-                'Activity summary for the last 24 hours.',
-            );
-            await this.updateLastRun(
-                'medium-digest',
-                'SUCCESS',
-                `Sent ${events.length} events`,
-            );
-            return { status: 'success', sent: events.length };
-        } catch (error) {
-            await this.updateLastRun(
-                'medium-digest',
-                'FAILURE',
-                this.getErrorMessage(error),
-            );
-            throw error;
-        }
-    }
-
-    // HOW: Triggered by internal cron or external HTTP call
-    // WHY: Ensures daily report is sent once every 24h regardless of trigger frequency
+    // WHY: Consolidates all daily audit activity into one summary email
     @Cron('59 23 * * *')
-    async handleDailyLowDigest(isExternal = false) {
-        // For daily digest, we check if it ran today
-        if (!(await this.shouldRunJob('low-digest', this.LOW_INTERVAL_MS))) {
+    async handleDailySummary(isExternal = false) {
+        if (!(await this.shouldRunToday(this.DAILY_JOB_NAME))) {
             return { status: 'skipped', reason: 'Daily report already sent' };
         }
 
+        const { startOfTodayUtc, startOfTomorrowUtc } =
+            this.getTodayUtcWindow();
         this.logger.log(
-            `Running Daily LOW digest (Trigger: ${isExternal ? 'External' : 'Cron'})...`,
+            `Running Daily Audit Summary (Trigger: ${isExternal ? 'External' : 'Cron'})...`,
         );
-        const events = await this.auditService.getUnsentEvents('LOW');
+        const events = await this.auditService.getUnsentEventsForWindow(
+            startOfTodayUtc,
+            startOfTomorrowUtc,
+        );
 
         if (events.length === 0) {
             await this.updateLastRun(
-                'low-digest',
+                this.DAILY_JOB_NAME,
                 'SUCCESS',
                 'No events to send',
             );
@@ -101,20 +55,21 @@ export class AuditScheduler {
         }
 
         try {
+            const subjectDate = startOfTodayUtc.toISOString().split('T')[0];
             await this.sendDigest(
-                'Daily Low-Severity Activity Report',
+                `Daily Audit Summary (${subjectDate}, UTC)`,
                 events,
-                'Consolidated report of all read-only actions for today.',
+                'Consolidated report of all audit activity captured today.',
             );
             await this.updateLastRun(
-                'low-digest',
+                this.DAILY_JOB_NAME,
                 'SUCCESS',
                 `Sent ${events.length} events`,
             );
             return { status: 'success', sent: events.length };
         } catch (error) {
             await this.updateLastRun(
-                'low-digest',
+                this.DAILY_JOB_NAME,
                 'FAILURE',
                 this.getErrorMessage(error),
             );
@@ -122,17 +77,27 @@ export class AuditScheduler {
         }
     }
 
-    // HOW: Check database for last execution time of a specific job
-    // WHY: Guarantees idempotency and prevents flooding if the trigger is too aggressive
-    private async shouldRunJob(
-        jobName: string,
-        intervalMs: number,
-    ): Promise<boolean> {
+    private getTodayUtcWindow(now = new Date()): {
+        startOfTodayUtc: Date;
+        startOfTomorrowUtc: Date;
+    } {
+        const startOfTodayUtc = new Date(
+            Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+        );
+        const startOfTomorrowUtc = new Date(startOfTodayUtc);
+        startOfTomorrowUtc.setUTCDate(startOfTomorrowUtc.getUTCDate() + 1);
+
+        return { startOfTodayUtc, startOfTomorrowUtc };
+    }
+
+    // HOW: Check if the daily summary has already run for the current UTC day
+    // WHY: Prevent duplicate emails when external systems call the endpoint repeatedly
+    private async shouldRunToday(jobName: string): Promise<boolean> {
         const log = await this.cronLogModel.findOne({ jobName }).exec();
         if (!log) return true;
 
-        const timeSinceLastRun = Date.now() - log.lastRunAt.getTime();
-        return timeSinceLastRun >= intervalMs;
+        const { startOfTodayUtc } = this.getTodayUtcWindow();
+        return log.lastRunAt < startOfTodayUtc;
     }
 
     private async updateLastRun(

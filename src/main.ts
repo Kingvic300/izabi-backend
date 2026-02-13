@@ -18,11 +18,30 @@ async function bootstrap() {
         'http://127.0.0.1:5173',
         'https://izabi.onrender.com',
     ];
+    const normalizeOrigin = (value: string): string =>
+        value.trim().replace(/\/+$/, '').toLowerCase();
+
     const envCorsOrigins = (process.env.CORS_ORIGINS ?? '')
         .split(',')
-        .map((origin) => origin.trim())
+        .map((origin) => normalizeOrigin(origin))
         .filter(Boolean);
-    const corsOrigins = [...new Set([...defaultCorsOrigins, ...envCorsOrigins])];
+    const corsOrigins = new Set(
+        [...defaultCorsOrigins, ...envCorsOrigins].map((origin) =>
+            normalizeOrigin(origin),
+        ),
+    );
+
+    const isAllowedVercelPreview = (origin: string): boolean => {
+        try {
+            const url = new URL(origin);
+            if (url.protocol !== 'https:') return false;
+
+            // Allow Vercel preview deployments for the "inkluziv" project.
+            return /^[a-z0-9-]+-inkluziv\.vercel\.app$/i.test(url.hostname);
+        } catch {
+            return false;
+        }
+    };
 
     // Enable CORS with explicit allowlist
     app.enableCors({
@@ -30,7 +49,16 @@ async function bootstrap() {
             origin: string | undefined,
             callback: (error: Error | null, allow?: boolean) => void,
         ) => {
-            if (!origin || corsOrigins.includes(origin)) {
+            if (!origin) {
+                callback(null, true);
+                return;
+            }
+
+            const normalizedOrigin = normalizeOrigin(origin);
+            if (
+                corsOrigins.has(normalizedOrigin) ||
+                isAllowedVercelPreview(normalizedOrigin)
+            ) {
                 callback(null, true);
                 return;
             }

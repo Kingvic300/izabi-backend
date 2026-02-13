@@ -2,20 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AuditLog, AuditLogDocument } from './entities/audit-log.entity';
-import { MailService } from '../mail/mail.service';
-import { ConfigService } from '@nestjs/config';
-import { getAuditAlertTemplate } from '../mail/mail.templates';
 
 @Injectable()
 export class AuditService {
     private readonly logger = new Logger(AuditService.name);
-    private readonly ADMIN_EMAIL = 'victor7ishola@gmail.com';
 
     constructor(
         @InjectModel(AuditLog.name)
         private auditLogModel: Model<AuditLogDocument>,
-        private mailService: MailService,
-        private configService: ConfigService,
     ) {}
 
     // HOW: Save audit events asynchronously to avoid blocking user requests
@@ -23,48 +17,22 @@ export class AuditService {
     async logEvent(event: any): Promise<AuditLogDocument> {
         try {
             const log = new this.auditLogModel(event);
-            const saved = await log.save();
-
-            // HOW: Immediate alerting for high-priority events
-            // WHY: Admins must be notified of security/signup/critical events instantly
-            if (saved.severity === 'HIGH' || saved.severity === 'CRITICAL') {
-                this.sendImmediateAlert(saved).catch((err) =>
-                    this.logger.error(`Alert failed for ${saved.eventId}`, err),
-                );
-            }
-
-            return saved;
+            return await log.save();
         } catch (error) {
             this.logger.error('Failed to persist audit log', error);
             throw error;
         }
     }
 
-    // HOW: Send a single transactional alert email
-    // WHY: Direct notification for HIGH/CRITICAL severity actions
-    private async sendImmediateAlert(log: AuditLogDocument) {
-        const subject = `[${log.severity}] Audit Alert • ${log.action}`;
-        const content = getAuditAlertTemplate(log);
-
-        // HOW: Reuse existing MailService to send via Brevo
-        // NOTE: MailService needs to be updated to support custom HTML or we use a hack
-        // For now, I'll log that we are sending it.
-        await this.mailService.sendCustomEmail(
-            this.ADMIN_EMAIL,
-            subject,
-            content,
-        );
-
-        log.emailedAt = new Date();
-        await log.save();
-    }
-
-    // HOW: Fetch pending events for digest processing
-    // WHY: Supports batched notification strategy to stay under rate limits
-    async getUnsentEvents(severity: string): Promise<AuditLogDocument[]> {
+    // HOW: Fetch pending events for digest processing in a date window
+    // WHY: Supports one daily summary email for "today" only
+    async getUnsentEventsForWindow(
+        startDate: Date,
+        endDate: Date,
+    ): Promise<AuditLogDocument[]> {
         return this.auditLogModel
             .find({
-                severity,
+                createdAt: { $gte: startDate, $lt: endDate },
                 emailedAt: { $exists: false },
             })
             .sort({ createdAt: 1 })

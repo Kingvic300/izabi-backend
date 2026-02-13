@@ -25,7 +25,7 @@ export class CronController {
         @Query('secret') querySecret: string,
     ) {
         this.validateSecret(headerSecret || querySecret);
-        return await this.auditScheduler.handleMediumDigest(true);
+        return await this.auditScheduler.handleDailySummary(true);
     }
 
     @Get('low-severity')
@@ -34,7 +34,16 @@ export class CronController {
         @Query('secret') querySecret: string,
     ) {
         this.validateSecret(headerSecret || querySecret);
-        return await this.auditScheduler.handleDailyLowDigest(true);
+        return await this.auditScheduler.handleDailySummary(true);
+    }
+
+    @Get('daily-summary')
+    async triggerDailySummary(
+        @Headers('x-cron-secret') headerSecret: string,
+        @Query('secret') querySecret: string,
+    ) {
+        this.validateSecret(headerSecret || querySecret);
+        return await this.auditScheduler.handleDailySummary(true);
     }
 
     private validateSecret(secret: string | undefined): void {
