@@ -5,6 +5,7 @@ import {
     ServiceUnavailableException,
     UnauthorizedException,
     PayloadTooLargeException,
+    Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -12,9 +13,11 @@ import { Model } from 'mongoose';
 import { Chat, ChatDocument } from './entities/chat.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { VectorService } from './vector.service.js';
+import { AiCacheService } from './ai-cache.service.js';
+import { generateHash } from '../common/utils/text-cache.utils.js';
+import { chunkTextBySize } from '../common/utils/text-chunk.utils.js';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
-import * as crypto from 'crypto';
 import { extractTextFromFile } from '../common/utils/text-extractor.js';
 
 // Configure global retry for all external API calls (Groq, File Fetching)
@@ -29,11 +32,18 @@ axiosRetry(axios, {
 @Injectable()
 export class AiService {
     private groqKeys: string[] = [];
+    private readonly keyHealth = new Map<
+        string,
+        { failures: number; successes: number; cooldownUntil: number }
+    >();
+    private readonly keyMetrics = new Map<string, { success: number; failure: number }>();
+    private rrIndex = 0;
     private userRateLimits = new Map<
         string,
         { count: number; resetAt: number }
     >();
     private currentUserId: string | null = null;
+    private readonly logger = new Logger(AiService.name);
 
     // --- Constants for Limits and Safety ---
     private readonly MAX_OUTPUT_TOKENS = 4096;
@@ -44,12 +54,15 @@ export class AiService {
     private readonly MAX_REQUESTS_PER_WINDOW = 30;
     private readonly MAX_HISTORY_MESSAGES = 10;
     private readonly MAX_DOCUMENT_CHUNKS = 300; // Increased to 300 for textbooks
+    private readonly backoffBaseMs = 500;
+    private readonly backoffCapMs = 12_000;
 
     constructor(
         private configService: ConfigService,
         @InjectModel(Chat.name) private chatModel: Model<ChatDocument>,
         private usersService: UsersService,
         private vectorService: VectorService,
+        private aiCacheService: AiCacheService,
     ) {
         const keys = this.configService.get<string>('GROQ_API_KEYS');
         if (keys) {
@@ -139,6 +152,14 @@ export class AiService {
         return total;
     }
 
+    private async exponentialSleep(attempt: number) {
+        const delay = Math.min(
+            this.backoffBaseMs * Math.pow(2, attempt),
+            this.backoffCapMs,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
     // --- Key Management ---
 
     private async getAvailableKeys(userId?: string): Promise<string[]> {
@@ -161,11 +182,20 @@ export class AiService {
             keys.push(...this.groqKeys);
         }
 
-        const finalKeys = [...new Set(keys)];
-        console.log(
-            `[AiService] getAvailableKeys: Found ${finalKeys.length} keys.`,
-        );
-        return finalKeys;
+        // Round-robin start offset for fairness
+        if (keys.length > 1) {
+            const offset = this.rrIndex % keys.length;
+            const rotated = keys.slice(offset).concat(keys.slice(0, offset));
+            return rotated.filter((k) => this.isKeyHealthy(k));
+        }
+
+        return keys.filter((k) => this.isKeyHealthy(k));
+    }
+
+    private isKeyHealthy(key: string): boolean {
+        const health = this.keyHealth.get(key);
+        if (!health) return true;
+        return Date.now() >= health.cooldownUntil;
     }
 
     // --- Execution Core with Retry & Rotation ---
@@ -183,19 +213,20 @@ export class AiService {
         }
 
         let lastError: any;
+        this.rrIndex = (this.rrIndex + 1) % keys.length;
 
-        // Try keys sequentially
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i];
+            const keySuffix = key.length > 4 ? '...' + key.slice(-4) : '***';
             try {
-                console.log(
-                    `[AiService] Attempting AI call with key index ${i}...`,
-                );
-                return await operation(key);
+                this.logger.log(`[AiService] Using key ${i + 1}/${keys.length} (${keySuffix})`);
+                const result = await operation(key);
+                this.markKeySuccess(key);
+                return result;
             } catch (error: any) {
                 lastError = error;
+                this.markKeyFailure(key, error);
 
-                // --- Fatal Errors: DO NOT RETRY ---
                 if (
                     error instanceof PayloadTooLargeException ||
                     error instanceof BadRequestException
@@ -214,7 +245,6 @@ export class AiService {
                         );
                 }
 
-                // --- Retryable Errors ---
                 const status = axios.isAxiosError(error)
                     ? error.response?.status
                     : undefined;
@@ -248,18 +278,66 @@ export class AiService {
                     throw error;
                 }
 
-                const keySuffix =
-                    key.length > 4 ? '...' + key.slice(-4) : '***';
-                console.warn(
+                this.logger.warn(
                     `[AiService] Key ${keySuffix} failed (${error.message}). Rotating...`,
                 );
-                // Continue to next key
+
+                // Exponential backoff before next key to avoid herd on provider
+                await this.exponentialSleep(i);
             }
         }
 
-        console.error('[AiService] All keys exhausted.', lastError);
+        this.logger.error('[AiService] All keys exhausted.', lastError);
         throw new ServiceUnavailableException(
             'AI service temporarily unavailable. Please try again later.',
+        );
+    }
+
+    private markKeySuccess(key: string) {
+        const health = this.keyHealth.get(key) ?? {
+            failures: 0,
+            successes: 0,
+            cooldownUntil: 0,
+        };
+        health.successes += 1;
+        health.failures = 0;
+        health.cooldownUntil = 0;
+        this.keyHealth.set(key, health);
+
+        const metrics = this.keyMetrics.get(key) ?? { success: 0, failure: 0 };
+        metrics.success += 1;
+        this.keyMetrics.set(key, metrics);
+    }
+
+    private markKeyFailure(key: string, error: any) {
+        const health = this.keyHealth.get(key) ?? {
+            failures: 0,
+            successes: 0,
+            cooldownUntil: 0,
+        };
+        health.failures += 1;
+
+        // cool down on repeated failures or explicit rate limits
+        const isRateLimit = axios.isAxiosError(error) && error.response?.status === 429;
+        const isAuth = axios.isAxiosError(error) && error.response?.status === 401;
+        const backoffMs = isRateLimit ? 60_000 : isAuth ? 5 * 60_000 : 10_000 * health.failures;
+        health.cooldownUntil = Date.now() + Math.min(backoffMs, 10 * 60_000);
+        this.keyHealth.set(key, health);
+
+        const metrics = this.keyMetrics.get(key) ?? { success: 0, failure: 0 };
+        metrics.failure += 1;
+        this.keyMetrics.set(key, metrics);
+    }
+
+    // Exposed for monitoring dashboards / future endpoints
+    getKeyMetrics() {
+        return Array.from(this.keyMetrics.entries()).map(
+            ([key, counts]) => ({
+                keySuffix: key.length > 4 ? '...' + key.slice(-4) : '***',
+                success: counts.success,
+                failure: counts.failure,
+                cooldownUntil: this.keyHealth.get(key)?.cooldownUntil ?? 0,
+            }),
         );
     }
 
@@ -620,43 +698,8 @@ export class AiService {
         };
     }
 
-    // --- Document Logic with Token Safety ---
-
-    private getChunkSize(textLength: number): number {
-        if (textLength < 50000) return 18000;
-        if (textLength < 300000) return 16000;
-        return 14000; // textbooks, PDFs, monsters
-    }
-
-    private chunkText(text: string): string[] {
-        const CHUNK_CHAR_SIZE = this.getChunkSize(text.length);
-        const chunks: string[] = [];
-        let currentIndex = 0;
-
-        while (currentIndex < text.length) {
-            let endIndex = Math.min(
-                currentIndex + CHUNK_CHAR_SIZE,
-                text.length,
-            );
-
-            if (endIndex < text.length) {
-                const lastPeriod = text.lastIndexOf('.', endIndex);
-                const lastNewline = text.lastIndexOf('\n', endIndex);
-                const breakPoint = Math.max(lastPeriod, lastNewline);
-
-                if (breakPoint > currentIndex + CHUNK_CHAR_SIZE * 0.8) {
-                    endIndex = breakPoint + 1;
-                }
-            }
-
-            chunks.push(text.slice(currentIndex, endIndex));
-            currentIndex = endIndex;
-        }
-        return chunks;
-    }
-
     public generateHash(text: string): string {
-        return crypto.createHash('sha256').update(text).digest('hex');
+        return generateHash(text);
     }
 
     async generateFromFiles(
@@ -808,6 +851,39 @@ export class AiService {
             );
         }
 
+        const userScope = userId || 'system';
+        const { normalizedText, textHash, promptHash } =
+            this.aiCacheService.buildCacheKey(extractedText, message);
+
+        // 0. Exact cache hit (hash)
+        const exactCached = await this.aiCacheService.findExact(
+            userScope,
+            textHash,
+            promptHash,
+        );
+        if (exactCached) {
+            this.logger.log(
+                `[AiService] Cache hit (exact) for ${textHash.slice(0, 8)}...`,
+            );
+            return exactCached.aiOutput;
+        }
+
+        // 0b. Similarity cache hit (optional)
+        const similarity = await this.aiCacheService.findSimilar(
+            userScope,
+            promptHash,
+            normalizedText,
+        );
+        const cacheEmbedding = similarity.embedding;
+        if (similarity.match) {
+            this.logger.log(
+                `[AiService] Cache hit (similarity=${similarity.match.score.toFixed(
+                    3,
+                )}) for ${textHash.slice(0, 8)}...`,
+            );
+            return similarity.match.doc.aiOutput;
+        }
+
         let contextToUse = extractedText;
         let cacheHit = false;
 
@@ -849,7 +925,7 @@ export class AiService {
                     `[AiService] Large Doc (${initialTokenEst} tokens). Performing Initial Intelligence Mapping...`,
                 );
 
-                const chunks = this.chunkText(extractedText);
+                const chunks = chunkTextBySize(extractedText);
                 console.log(`[AiService] Chunked into ${chunks.length} parts`);
 
                 if (chunks.length > this.MAX_DOCUMENT_CHUNKS) {
@@ -975,6 +1051,47 @@ export class AiService {
             return res.data.choices[0].message.content;
         }, userId);
 
+        this.aiCacheService.store(
+            userScope,
+            textHash,
+            promptHash,
+            normalizedText,
+            responseText,
+            cacheEmbedding,
+            {
+                docHash,
+                source: 'processExtractedText',
+            },
+        ).catch((error) =>
+            this.logger.warn(
+                `[AiService] Cache write failed: ${this.summarizeError(error)}`,
+            ),
+        );
+
         return responseText;
+    }
+
+    // Lightweight summarization entry used by queue workers
+    async summarizeText(
+        text: string,
+        userId?: string,
+        meta: Record<string, any> = {},
+    ): Promise<string> {
+        const prompt = `Summarize the following content for quick review. Keep it concise, bullet if helpful.\n\n${text}`;
+        return this.executeWithRetry(async (key) => {
+            const res = await this.callGroqApi(
+                [
+                    {
+                        role: 'system',
+                        content:
+                            'You are a concise academic summarizer. Keep key points, keep under 200 words unless asked otherwise.',
+                    },
+                    { role: 'user', content: prompt },
+                ],
+                key,
+                false,
+            );
+            return res.data.choices[0].message.content;
+        }, userId);
     }
 }

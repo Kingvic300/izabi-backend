@@ -12,6 +12,7 @@ import {
     Req,
     UseInterceptors,
     UploadedFile,
+    Param,
 } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { UsersService } from '../users/users.service';
@@ -19,12 +20,14 @@ import { Observable, from } from 'rxjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MAX_UPLOAD_SIZE_BYTES } from '../common/constants/upload.constants';
+import { AiQueueService } from './ai.queue.service';
 
 @Controller('api/ai')
 export class AiController {
     constructor(
         private readonly aiService: AiService,
         private readonly usersService: UsersService,
+        private readonly aiQueueService: AiQueueService,
     ) {}
 
     @UseGuards(JwtAuthGuard)
@@ -86,6 +89,33 @@ export class AiController {
                 error.message || 'AI failed to respond',
             );
         }
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Post('summarize')
+    async enqueueSummary(@Body('text') text: string, @Req() req: any) {
+        const userId = req.user.userId;
+        const job = await this.aiQueueService.enqueueSummarization(userId, text, {
+            priority: 0,
+        });
+
+        return { success: true, jobId: job.id, status: job.status };
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Get('jobs/:id')
+    async getJob(@Param('id') id: string, @Req() req: any) {
+        const job = await this.aiQueueService.getJob(id);
+        if (!job || job.userId !== req.user.userId) {
+            throw new BadRequestException('Job not found');
+        }
+        return {
+            success: true,
+            status: job.status,
+            result: job.status === 'completed' ? job.result : undefined,
+            error: job.status === 'failed' ? job.error : undefined,
+            attempts: job.attempts,
+        };
     }
 
     @UseGuards(JwtAuthGuard)

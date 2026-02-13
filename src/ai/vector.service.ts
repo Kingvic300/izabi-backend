@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as path from 'path';
+import { cosineSimilarity } from '../common/utils/embedding.utils.js';
 import {
     KnowledgeBase,
     KnowledgeBaseDocument,
@@ -75,23 +76,6 @@ export class VectorService implements OnModuleInit {
 
         // Tensor.data can be Int8Array | Float32Array | etc
         return Array.from(tensor.data as Iterable<number>);
-    }
-
-    private cosineSimilarity(vecA: number[], vecB: number[]): number {
-        if (vecA.length !== vecB.length || vecA.length === 0) return 0;
-
-        let dot = 0;
-        let normA = 0;
-        let normB = 0;
-
-        for (let i = 0; i < vecA.length; i++) {
-            dot += vecA[i] * vecB[i];
-            normA += vecA[i] * vecA[i];
-            normB += vecB[i] * vecB[i];
-        }
-
-        const denom = Math.sqrt(normA) * Math.sqrt(normB);
-        return denom === 0 ? 0 : dot / denom;
     }
 
     chunkText(text: string, chunkSize = 800, overlap = 100): string[] {
@@ -188,7 +172,7 @@ export class VectorService implements OnModuleInit {
             content: doc.content,
             vector: doc.vector,
             metadata: doc.metadata,
-            score: this.cosineSimilarity(queryVector, doc.vector),
+            score: cosineSimilarity(queryVector, doc.vector),
         }));
 
         scored.sort((a, b) => b.score - a.score);
