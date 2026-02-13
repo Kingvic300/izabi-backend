@@ -42,9 +42,6 @@ export class ExamsService {
             .sort({ createdAt: -1 })
             .exec();
         if (match) {
-            console.log(
-                `[ExamsService] API SAVER: Reusing existing questions for ${category} ${subject || courseTitle}`,
-            );
             return {
                 ...match.toObject(),
                 questions: this.shuffleArray(match.questions),
@@ -113,9 +110,6 @@ export class ExamsService {
         Return ONLY a JSON object: {"questions": [{"question": "string", "options": ["A) ", "B) ", "C) ", "D) "], "answer": "string", "explanation": "string"}]}`;
 
         try {
-            console.log(
-                `[ExamsService] Requesting AI exam generation for ${prompt.substring(0, 50)}...`,
-            );
             const aiRawResponse = await this.aiService.getResponse(
                 `${prompt}\n${jsonInstruction}`,
                 userId,
@@ -156,8 +150,7 @@ export class ExamsService {
             });
 
             return await exam.save();
-        } catch (error) {
-            console.error('[ExamsService] Error:', error.message);
+        } catch (error: any) {
             throw new InternalServerErrorException('Exam generation failed');
         }
     }

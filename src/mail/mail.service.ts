@@ -109,7 +109,7 @@ export class MailService {
                 'Izabi Support',
             );
             console.log(`[MailService] OTP send successful`);
-        } catch (error) {
+        } catch (error: any) {
             console.error(
                 `[MailService] OTP send error:`,
                 error.response?.text || error.message,
@@ -132,7 +132,7 @@ export class MailService {
                 htmlContent,
                 'Izabi System Monitor',
             );
-        } catch (error) {
+        } catch (error: any) {
             console.error(
                 `[MailService] Custom Email Error:`,
                 error.response?.text || error.message,
@@ -157,7 +157,7 @@ export class MailService {
                 'Izabi Gamification',
             );
             console.log(`[MailService] Freeze notification sent to ${email}`);
-        } catch (error) {
+        } catch (error: any) {
             console.error(
                 `[MailService] Freeze notification failed:`,
                 error.message,
@@ -169,16 +169,18 @@ export class MailService {
         try {
             await this.sendEmail(
                 email,
-                '🚀 Izabi is officially LIVE!',
+                'Izabi is live - your learning command center is ready',
                 getLiveAnnouncementTemplate(name),
-                'Izabi AI',
+                'Victor Oladimeji',
             );
             console.log(`[MailService] Live announcement sent to ${email}`);
-        } catch (error) {
+            return true;
+        } catch (error: any) {
             console.error(
                 `[MailService] Live announcement failed for ${email}:`,
                 error.message,
             );
+            return false;
         }
     }
 }

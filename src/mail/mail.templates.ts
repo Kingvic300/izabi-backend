@@ -367,77 +367,99 @@ export const getStreakFreezeTemplate = (
 };
 
 export const getLiveAnnouncementTemplate = (name: string): string => {
-    const firstName = name ? name.split(' ')[0] : 'Scholar';
+    const safe = (value?: string) =>
+        (value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    const firstName = safe(name ? name.split(' ')[0] : 'Scholar') || 'Scholar';
+
     return `
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Izabi is Live!</title>
-    <style>
-        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; -webkit-text-size-adjust: 100%; }
-        .container { width: 100%; max-width: 600px; margin: 20px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 24px; overflow: hidden; }
-        .header { padding: 40px; text-align: center; }
-        .logo { font-size: 24px; font-weight: 800; color: #fff; text-decoration: none; }
-        .logo span { color: #3b82f6; }
-        .hero { padding: 0 40px 40px 40px; text-align: center; }
-        .h1 { font-size: 32px; font-weight: 800; margin-bottom: 16px; color: #ffffff; letter-spacing: -1px; }
-        .hero-text { font-size: 16px; line-height: 1.6; color: #94a3b8; margin-bottom: 32px; }
-        .cta-button { display: inline-block; background: #3b82f6; color: #ffffff; text-decoration: none; padding: 18px 36px; border-radius: 14px; font-weight: 700; font-size: 18px; box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4); }
-        
-        .feature-grid { padding: 0 40px 40px 40px; }
-        .feature-card { background: #1e293b; border-radius: 16px; padding: 20px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.05); }
-        .feature-title { color: #3b82f6; font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; display: block; }
-        .feature-body { font-size: 15px; color: #94a3b8; line-height: 1.5; }
-        .footer-note { margin-top: 10px; }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Izabi is Live</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#0b0f14;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#0b0f14; padding:32px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:640px; background:#0f1620; border-radius:18px; overflow:hidden; border:1px solid #1c2733;">
+            <tr>
+              <td style="padding:28px 32px; background:linear-gradient(135deg,#0f2033,#0b141f); border-bottom:1px solid #1c2733;">
+                <div style="font-family:Arial,Helvetica,sans-serif; color:#9fb3c8; font-size:12px; letter-spacing:2px; text-transform:uppercase; font-weight:700;">
+                  Izabi Launch
+                </div>
+                <h1 style="margin:10px 0 6px; font-family:Arial,Helvetica,sans-serif; color:#ffffff; font-size:28px; line-height:1.2;">
+                  Izabi is live and fully operational
+                </h1>
+                <p style="margin:0; font-family:Arial,Helvetica,sans-serif; color:#9fb3c8; font-size:15px; line-height:1.6;">
+                  Your learning command center is ready.
+                </p>
+              </td>
+            </tr>
 
-        .footer { padding: 40px; background-color: #020617; text-align: center; font-size: 13px; color: #475569; border-top: 1px solid #1e293b; }
+            <tr>
+              <td style="padding:28px 32px;">
+                <p style="margin:0 0 16px; font-family:Arial,Helvetica,sans-serif; color:#e6edf5; font-size:16px; line-height:1.7;">
+                  Hello ${firstName},
+                </p>
+                <p style="margin:0 0 18px; font-family:Arial,Helvetica,sans-serif; color:#c6d4e1; font-size:16px; line-height:1.7;">
+                  We're excited to let you know that Izabi is now live and fully operational.
+                </p>
+                <p style="margin:0 0 24px; font-family:Arial,Helvetica,sans-serif; color:#c6d4e1; font-size:16px; line-height:1.7;">
+                  You can now access the platform at:
+                </p>
 
-        @media only screen and (max-width: 620px) {
-            .container { margin: 10px auto !important; border-radius: 14px !important; }
-            .header, .footer { padding: 24px 18px !important; }
-            .hero { padding: 0 18px 24px 18px !important; }
-            .feature-grid { padding: 0 18px 24px 18px !important; }
-            .h1 { font-size: 26px !important; letter-spacing: -0.5px !important; }
-            .hero-text { font-size: 15px !important; margin-bottom: 22px !important; }
-            .cta-button { display: block !important; width: 100% !important; box-sizing: border-box !important; padding: 14px 16px !important; font-size: 16px !important; }
-            .feature-card { padding: 16px !important; margin-bottom: 12px !important; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">IZABI<span>.</span></div>
-        </div>
-        <div class="hero">
-            <h1 class="h1">We are officially LIVE! 🚀</h1>
-            <p class="hero-text">Hey ${firstName}, the wait is over. Izabi AI is now fully operational and ready to help you crush your academic goals with the power of intelligence.</p>
-            <a href="https://izabi.vercel.app" class="cta-button">Experience Izabi Now</a>
-        </div>
+                <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
+                  <tr>
+                    <td style="background:#101b26; border:1px solid #1c2733; border-radius:12px; padding:14px 16px;">
+                      <a href="https://izabi.halixe.com/" style="font-family:Arial,Helvetica,sans-serif; color:#67b7ff; font-size:16px; text-decoration:none;">
+                        https://izabi.halixe.com/
+                      </a>
+                    </td>
+                  </tr>
+                </table>
 
-        <div class="feature-grid">
-            <div class="feature-card">
-                <span class="feature-title">New: Exam Center</span>
-                <p class="feature-body">Simulate JAMB, WAEC, and University exams with real-time AI feedback and professional grading.</p>
-            </div>
-            <div class="feature-card">
-                <span class="feature-title">Unlimited Brain Drops</span>
-                <p class="feature-body">Turn your class notes into daily AI challenges that adapt as you learn.</p>
-            </div>
-            <div class="feature-card">
-                <span class="feature-title">Multi-Track Streaks</span>
-                <p class="feature-body">Track your growth across quizzes, summaries, and guides. Don't break the chain!</p>
-            </div>
-        </div>
+                <table role="presentation" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="background:#2f80ed; border-radius:12px;">
+                      <a href="https://izabi.halixe.com/" style="display:inline-block; padding:14px 22px; font-family:Arial,Helvetica,sans-serif; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none; letter-spacing:0.3px;">
+                        Launch Izabi
+                      </a>
+                    </td>
+                  </tr>
+                </table>
 
-        <div class="footer">
-            <p>You're part of the first cohort of elite students using Izabi.</p>
-            <p class="footer-note">&copy; ${new Date().getFullYear()} Izabi AI. Master your curriculum.</p>
-        </div>
-    </div>
-</body>
+                <p style="margin:26px 0 0; font-family:Arial,Helvetica,sans-serif; color:#9fb3c8; font-size:13px; line-height:1.6;">
+                  If the button doesn't work, copy and paste the link above into your browser.
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:24px 32px; background:#0c141d; border-top:1px solid #1c2733;">
+                <p style="margin:0; font-family:Arial,Helvetica,sans-serif; color:#e6edf5; font-size:15px; line-height:1.6;">
+                  Victor Oladimeji
+                </p>
+                <p style="margin:4px 0 0; font-family:Arial,Helvetica,sans-serif; color:#9fb3c8; font-size:12px; line-height:1.6;">
+                  Founder, Izabi
+                </p>
+              </td>
+            </tr>
+          </table>
+
+          <p style="margin:16px 0 0; font-family:Arial,Helvetica,sans-serif; color:#6e7f92; font-size:11px;">
+            You received this email because you signed up for Izabi.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
 </html>
 `;
 };

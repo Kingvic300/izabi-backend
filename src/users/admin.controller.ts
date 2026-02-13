@@ -5,11 +5,16 @@ import {
     Param,
     UseGuards,
     NotFoundException,
+    Post,
+    Body,
+    Req,
+    ForbiddenException,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NotesService } from '../notes/notes.service';
 import { QuizService } from '../quiz/quiz.service';
+import { MailService } from '../mail/mail.service';
 
 @Controller('api/admin')
 @UseGuards(JwtAuthGuard)
@@ -20,6 +25,7 @@ export class AdminController {
         private readonly usersService: UsersService,
         private readonly notesService: NotesService,
         private readonly quizService: QuizService,
+        private readonly mailService: MailService,
     ) {}
 
     /**
@@ -269,6 +275,74 @@ export class AdminController {
                 error.message || 'Failed to fetch user history',
             );
         }
+    }
+
+    /**
+     * Send the live announcement email to all non-admin users.
+     * Optional body:
+     * - dryRun: boolean (if true, do not send)
+     * - limit: number (max recipients)
+     */
+    @Post('announce-live')
+    async announceLive(
+        @Req() req: any,
+        @Body() body?: { dryRun?: boolean; limit?: number },
+    ) {
+        const role = req?.user?.role || '';
+        if (!['ADMIN', 'admin'].includes(role)) {
+            throw new ForbiddenException('Admin access required.');
+        }
+
+        const users = await this.usersService.findAll();
+        const recipients = users.filter(
+            (user: any) =>
+                user?.email &&
+                !['ADMIN', 'admin'].includes(user.role || ''),
+        );
+
+        const limit =
+            body?.limit && body.limit > 0
+                ? Math.min(body.limit, recipients.length)
+                : recipients.length;
+        const targetUsers = recipients.slice(0, limit);
+
+        if (body?.dryRun) {
+            return {
+                success: true,
+                dryRun: true,
+                total: targetUsers.length,
+                sent: 0,
+                failed: 0,
+            };
+        }
+
+        let sent = 0;
+        let failed = 0;
+        const failures: string[] = [];
+
+        for (const user of targetUsers) {
+            const displayName =
+                `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+                user.email;
+            const ok = await this.mailService.sendLiveAnnouncement(
+                user.email,
+                displayName,
+            );
+            if (ok) {
+                sent += 1;
+            } else {
+                failed += 1;
+                if (failures.length < 20) failures.push(user.email);
+            }
+        }
+
+        return {
+            success: true,
+            total: targetUsers.length,
+            sent,
+            failed,
+            failures,
+        };
     }
 
     /**

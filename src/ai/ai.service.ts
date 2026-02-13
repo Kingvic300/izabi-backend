@@ -437,7 +437,7 @@ export class AiService {
                 chat.messages = chat.messages.slice(-this.MAX_HISTORY_MESSAGES);
             }
             return chat;
-        } catch (error) {
+        } catch (error: any) {
             console.error(
                 `[AiService] Error fetching chat history for ${userId}:`,
                 error,
@@ -464,7 +464,7 @@ export class AiService {
                 chat.messages = chat.messages.slice(-100);
             }
             await chat.save();
-        } catch (error) {
+        } catch (error: any) {
             console.error(
                 `[AiService] Error saving message for ${userId}:`,
                 error,
