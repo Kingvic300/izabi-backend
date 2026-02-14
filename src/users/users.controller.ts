@@ -32,6 +32,24 @@ export class UsersController {
             const userId = req.user.userId;
             const user = await this.usersService.findOne(userId);
             const streaks = await this.usersService.getStreakNumber(userId);
+            const subscriptionsEnabled =
+                process.env.SUBSCRIPTIONS_ENABLED === 'true';
+            const limits = subscriptionsEnabled
+                ? {
+                      dailyDocs:
+                          user.subscriptionStatus === 'premium'
+                              ? 30
+                              : user.subscriptionStatus === 'pro'
+                                ? 15
+                                : 5,
+                      dailyMessages:
+                          user.subscriptionStatus === 'premium'
+                              ? 45
+                              : user.subscriptionStatus === 'pro'
+                                ? 30
+                                : 20,
+                  }
+                : null;
 
             return {
                 success: true,
@@ -53,20 +71,8 @@ export class UsersController {
                     usage: {
                         dailyDocs: user.dailyDocs || 0,
                         dailyMessages: user.dailyMessages || 0,
-                        limits: {
-                            dailyDocs:
-                                user.subscriptionStatus === 'premium'
-                                    ? 30
-                                    : user.subscriptionStatus === 'pro'
-                                      ? 15
-                                      : 5,
-                            dailyMessages:
-                                user.subscriptionStatus === 'premium'
-                                    ? 45
-                                    : user.subscriptionStatus === 'pro'
-                                      ? 30
-                                      : 20,
-                        },
+                        limits,
+                        unlimited: !subscriptionsEnabled,
                     },
                 },
             };

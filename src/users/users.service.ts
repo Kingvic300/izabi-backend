@@ -416,6 +416,11 @@ export class UsersService {
     ): Promise<{ allowed: boolean; reason?: string }> {
         const user = await this.userModel.findById(userId);
         if (!user) throw new NotFoundException('User not found');
+        const subscriptionsEnabled =
+            process.env.SUBSCRIPTIONS_ENABLED === 'true';
+        if (!subscriptionsEnabled) {
+            return { allowed: true };
+        }
 
         const now = new Date();
         const todayUTC = this.getMidnightUTC(now);
