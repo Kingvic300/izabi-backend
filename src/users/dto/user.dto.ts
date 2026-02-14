@@ -55,4 +55,8 @@ export class UpdateProfileDto {
     @IsOptional()
     @IsString()
     profilePicturePath?: string;
+
+    @IsOptional()
+    @IsString()
+    preferredLanguage?: string;
 }

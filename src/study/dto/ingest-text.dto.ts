@@ -16,4 +16,8 @@ export class IngestTextDto {
     @IsOptional()
     @IsObject()
     options?: any;
+
+    @IsOptional()
+    @IsString()
+    lang?: string;
 }

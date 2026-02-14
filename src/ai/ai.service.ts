@@ -20,6 +20,14 @@ import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import { extractTextFromFile } from '../common/utils/text-extractor.js';
 
+type AiResponseFormat = 'text' | 'markdown' | 'json';
+
+interface AiResponseOptions {
+    language?: string;
+    format?: AiResponseFormat;
+    disableLanguage?: boolean;
+}
+
 // Configure global retry for all external API calls (Groq, File Fetching)
 axiosRetry(axios, {
     retries: 3,
@@ -127,6 +135,65 @@ export class AiService {
         } catch {
             return String(error);
         }
+    }
+
+    private normalizeLanguage(language?: string): string | null {
+        const cleaned = (language || '').trim();
+        if (!cleaned) return null;
+        const normalized = cleaned.toLowerCase();
+        if (
+            normalized === 'en' ||
+            normalized === 'english' ||
+            normalized.startsWith('en-')
+        ) {
+            return 'en';
+        }
+        return normalized;
+    }
+
+    private async resolveLanguage(
+        userId?: string,
+        options?: AiResponseOptions,
+    ): Promise<string | null> {
+        if (options?.disableLanguage) return null;
+        if (options?.language) return this.normalizeLanguage(options.language);
+        if (!userId) return null;
+        try {
+            const user = await this.usersService.findOne(userId);
+            return this.normalizeLanguage((user as any).preferredLanguage);
+        } catch {
+            return null;
+        }
+    }
+
+    private applyLanguageInstruction(
+        prompt: string,
+        language: string | null,
+        format?: AiResponseFormat,
+    ): string {
+        if (!language) return prompt;
+        const lowered = language.toLowerCase();
+        if (
+            lowered === 'en' ||
+            lowered === 'english' ||
+            lowered.startsWith('en-')
+        ) {
+            return prompt;
+        }
+
+        const isJson = format === 'json' || /\bjson\b/i.test(prompt);
+        const rules = [
+            'LANGUAGE RULES:',
+            `- Respond in ${language}.`,
+            '- Preserve technical terms, names, and formulas.',
+        ];
+        if (isJson) {
+            rules.push(
+                '- Keep all JSON keys and structure exactly as specified in English; translate only the text values.',
+            );
+        }
+
+        return `${prompt}\n\n${rules.join('\n')}`;
     }
 
     /**
@@ -486,14 +553,21 @@ export class AiService {
         message: string,
         userId?: string,
         documentId?: string,
+        options?: AiResponseOptions,
     ): Promise<string> {
-        return this.performContextAwareChat(userId || '', message, documentId);
+        return this.performContextAwareChat(
+            userId || '',
+            message,
+            documentId,
+            options,
+        );
     }
 
     async *getResponseStream(
         message: string,
         userId?: string,
         documentId?: string,
+        options?: AiResponseOptions,
     ) {
         if (userId) {
             try {
@@ -517,6 +591,12 @@ export class AiService {
                 message,
                 documentId,
             );
+            const language = await this.resolveLanguage(userId, options);
+            const finalPrompt = this.applyLanguageInstruction(
+                prompt,
+                language,
+                options?.format,
+            );
 
             // Only connection phase is retried
             streamResponse = await this.executeWithRetry(async (key) => {
@@ -527,7 +607,7 @@ export class AiService {
                             content:
                                 'You are Izabi, a world-class AI Learning Assistant. Use Markdown and prioritize provided context when available.',
                         },
-                        { role: 'user', content: prompt },
+                        { role: 'user', content: finalPrompt },
                     ],
                     key,
                     true,
@@ -613,6 +693,7 @@ export class AiService {
         userId: string,
         message: string,
         documentId?: string,
+        options?: AiResponseOptions,
     ): Promise<string> {
         if (userId) {
             await this.usersService.checkActivityLimit(userId, 'dailyMessages');
@@ -624,6 +705,12 @@ export class AiService {
             userId,
             message,
             documentId,
+        );
+        const language = await this.resolveLanguage(userId, options);
+        const finalPrompt = this.applyLanguageInstruction(
+            prompt,
+            language,
+            options?.format,
         );
 
         console.log(
@@ -637,7 +724,7 @@ export class AiService {
                         content:
                             'You are Izabi. Answer efficiently and accurately using the provided context.',
                     },
-                    { role: 'user', content: prompt },
+                    { role: 'user', content: finalPrompt },
                 ],
                 key,
                 false,
@@ -707,6 +794,7 @@ export class AiService {
         file: Express.Multer.File,
         userId?: string,
         contextId?: string,
+        options?: AiResponseOptions,
     ): Promise<string> {
         if (userId) {
             await this.usersService.checkActivityLimit(userId, 'dailyDocs');
@@ -723,6 +811,7 @@ export class AiService {
                 extractedText,
                 userId,
                 contentHash,
+                options,
             );
 
             // Auto-ingest for future RAG queries if contextId is provided (Post-processing)
@@ -770,6 +859,7 @@ export class AiService {
         url: string,
         userId?: string,
         contextId?: string,
+        options?: AiResponseOptions,
     ): Promise<string> {
         if (userId) {
             await this.usersService.checkActivityLimit(userId, 'dailyDocs');
@@ -799,6 +889,7 @@ export class AiService {
                 extractedText,
                 userId,
                 contentHash,
+                options,
             );
 
             // Auto-ingest for future RAG queries (Post-processing)
@@ -840,6 +931,7 @@ export class AiService {
         extractedText: string,
         userId?: string,
         docHash?: string,
+        options?: AiResponseOptions,
     ): Promise<string> {
         if (!extractedText) {
             throw new BadRequestException('No text extracted from file');
@@ -851,9 +943,19 @@ export class AiService {
             );
         }
 
+        const language = await this.resolveLanguage(userId, options);
+        const messageWithLanguage = this.applyLanguageInstruction(
+            message,
+            language,
+            options?.format,
+        );
+
         const userScope = userId || 'system';
         const { normalizedText, textHash, promptHash } =
-            this.aiCacheService.buildCacheKey(extractedText, message);
+            this.aiCacheService.buildCacheKey(
+                extractedText,
+                messageWithLanguage,
+            );
 
         // 0. Exact cache hit (hash)
         const exactCached = await this.aiCacheService.findExact(
@@ -1033,7 +1135,7 @@ export class AiService {
             }
         }
 
-        const fullPrompt = `${message}\n\n[CONTEXT]\n${contextToUse}`;
+        const fullPrompt = `${messageWithLanguage}\n\n[CONTEXT]\n${contextToUse}`;
 
         const responseText = await this.executeWithRetry(async (key) => {
             const res = await this.callGroqApi(
@@ -1076,8 +1178,15 @@ export class AiService {
         text: string,
         userId?: string,
         meta: Record<string, any> = {},
+        options?: AiResponseOptions,
     ): Promise<string> {
         const prompt = `Summarize the following content for quick review. Keep it concise, bullet if helpful.\n\n${text}`;
+        const language = await this.resolveLanguage(userId, options);
+        const promptWithLanguage = this.applyLanguageInstruction(
+            prompt,
+            language,
+            options?.format,
+        );
         return this.executeWithRetry(async (key) => {
             const res = await this.callGroqApi(
                 [
@@ -1086,7 +1195,7 @@ export class AiService {
                         content:
                             'You are a concise academic summarizer. Keep key points, keep under 200 words unless asked otherwise.',
                     },
-                    { role: 'user', content: prompt },
+                    { role: 'user', content: promptWithLanguage },
                 ],
                 key,
                 false,

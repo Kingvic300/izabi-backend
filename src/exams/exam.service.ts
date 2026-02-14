@@ -113,6 +113,8 @@ export class ExamsService {
             const aiRawResponse = await this.aiService.getResponse(
                 `${prompt}\n${jsonInstruction}`,
                 userId,
+                undefined,
+                { format: 'json' },
             );
 
             let questions = [];

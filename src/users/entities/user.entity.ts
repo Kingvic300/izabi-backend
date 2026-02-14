@@ -130,6 +130,9 @@ export class User {
     @Prop()
     groqApiKey?: string;
 
+    @Prop({ default: 'en' })
+    preferredLanguage!: string;
+
     createdAt?: Date;
     updatedAt?: Date;
 }

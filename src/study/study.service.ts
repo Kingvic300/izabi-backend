@@ -36,6 +36,7 @@ export class StudyService {
     private getMaterialConfig(type: string, options?: any) {
         let prompt = '';
         let points = 0;
+        let format: 'json' | 'markdown' = 'markdown';
         let actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards' =
             'summaries';
         let quizOptions: {
@@ -50,25 +51,29 @@ export class StudyService {
                 prompt = STUDY_PROMPTS.SUMMARY;
                 points = 10;
                 actionType = 'summaries';
+                format = 'markdown';
                 break;
             case 'flashcards':
                 prompt = STUDY_PROMPTS.FLASHCARDS;
                 points = 15;
                 actionType = 'flashcards';
+                format = 'json';
                 break;
             case 'quiz':
                 quizOptions = this.normalizeQuizOptions(options);
                 prompt = STUDY_PROMPTS.QUIZ(quizOptions.count, quizOptions);
                 points = 20;
                 actionType = 'quizzes';
+                format = 'json';
                 break;
             case 'study-guide':
                 prompt = STUDY_PROMPTS.STUDY_GUIDE;
                 points = 25;
                 actionType = 'guides';
+                format = 'markdown';
                 break;
         }
-        return { prompt, points, actionType, quizOptions };
+        return { prompt, points, actionType, quizOptions, format };
     }
 
     private normalizeQuizOptions(options?: any) {
@@ -89,6 +94,49 @@ export class StudyService {
         return { count, difficulty, questionStyle, shuffle };
     }
 
+    private normalizeLanguage(language?: string): string {
+        const cleaned = (language || '').trim().toLowerCase();
+        if (!cleaned) return 'en';
+        if (cleaned === 'english' || cleaned === 'en' || cleaned.startsWith('en-')) {
+            return 'en';
+        }
+        return cleaned;
+    }
+
+    private async resolveLanguage(
+        userId: string,
+        override?: string,
+    ): Promise<string> {
+        if (override && override.trim()) {
+            return this.normalizeLanguage(override);
+        }
+        try {
+            const user = await this.usersService.findOne(userId);
+            return this.normalizeLanguage((user as any).preferredLanguage);
+        } catch {
+            return 'en';
+        }
+    }
+
+    private buildLanguageCacheQuery(
+        base: Record<string, any>,
+        language: string,
+    ) {
+        const normalized = this.normalizeLanguage(language);
+        const isEnglish = normalized === 'en';
+        if (isEnglish) {
+            return {
+                ...base,
+                $or: [
+                    { language: { $exists: false } },
+                    { language: null },
+                    { language: { $in: ['en', 'english', 'en-us', 'en-gb'] } },
+                ],
+            };
+        }
+        return { ...base, language: normalized };
+    }
+
     // HOW: Initiates processing for a file uploaded directly to the backend
     // WHY: Removes direct frontend -> Cloudinary dependency for high-security or restrictive networks
     async startDirectUpload(
@@ -97,6 +145,7 @@ export class StudyService {
         data: {
             type: 'summary' | 'flashcards' | 'quiz' | 'study-guide';
             options?: any;
+            lang?: string;
         },
     ) {
         // 0. Usage Limit Check
@@ -108,6 +157,7 @@ export class StudyService {
             throw new BadRequestException(limit.reason);
         }
 
+        const language = await this.resolveLanguage(userId, data.lang);
         const config = this.getMaterialConfig(data.type, data.options);
 
         // 1. Content Fingerprinting
@@ -117,11 +167,14 @@ export class StudyService {
         const docHash = this.aiService.generateHash(extractedText);
 
         // 2. Cache Interception
-        const cacheQuery: any = {
-            docHash,
-            type: data.type,
-            status: 'COMPLETED',
-        };
+        const cacheQuery: any = this.buildLanguageCacheQuery(
+            {
+                docHash,
+                type: data.type,
+                status: 'COMPLETED',
+            },
+            language,
+        );
         if (data.type === 'quiz' && config.quizOptions) {
             cacheQuery['metadata.quizOptionsHash'] =
                 this.aiService.generateHash(
@@ -139,6 +192,7 @@ export class StudyService {
                 flashcards: existing.flashcards,
                 status: 'COMPLETED',
                 docHash,
+                language,
                 metadata: {
                     protocol: 'CACHE_HITS_v1',
                     reusedFrom: existing._id,
@@ -157,6 +211,7 @@ export class StudyService {
             type: data.type,
             status: 'PROCESSING',
             docHash,
+            language,
             metadata: {
                 protocol: 'DIRECT_ASYNC_v2',
                 timestamp: new Date().toISOString(),
@@ -200,6 +255,10 @@ export class StudyService {
                     file,
                     history.userId,
                     history._id.toString(),
+                    {
+                        language: history.language || 'en',
+                        format: config.format,
+                    },
                 ),
                 this.cloudinaryService.uploadFile(file).catch((err) => {
                     console.warn(
@@ -242,6 +301,7 @@ export class StudyService {
             fileName: string;
             type: 'summary' | 'flashcards' | 'quiz' | 'study-guide';
             options?: any;
+            lang?: string;
         },
     ) {
         // Usage Limit Check
@@ -253,15 +313,19 @@ export class StudyService {
             throw new BadRequestException(limit.reason);
         }
 
+        const language = await this.resolveLanguage(userId, data.lang);
         const config = this.getMaterialConfig(data.type, data.options);
         const docHash = this.aiService.generateHash(data.text);
 
         // Cache lookup
-        const textCacheQuery: any = {
-            docHash,
-            type: data.type,
-            status: 'COMPLETED',
-        };
+        const textCacheQuery: any = this.buildLanguageCacheQuery(
+            {
+                docHash,
+                type: data.type,
+                status: 'COMPLETED',
+            },
+            language,
+        );
         if (data.type === 'quiz' && config.quizOptions) {
             textCacheQuery['metadata.quizOptionsHash'] =
                 this.aiService.generateHash(
@@ -278,6 +342,7 @@ export class StudyService {
                 flashcards: existing.flashcards,
                 status: 'COMPLETED',
                 docHash,
+                language,
                 metadata: { protocol: 'TEXT_CACHE_v1' },
             });
             await this.usersService.addPoints(
@@ -293,6 +358,7 @@ export class StudyService {
             type: data.type,
             status: 'PROCESSING',
             docHash,
+            language,
             metadata: {
                 protocol: 'TEXT_INJECT_v2',
                 timestamp: new Date().toISOString(),
@@ -333,6 +399,11 @@ export class StudyService {
                 config.prompt,
                 text,
                 history.userId,
+                undefined,
+                {
+                    language: history.language || 'en',
+                    format: config.format,
+                },
             );
 
             (history.metadata as any).progress = 80;
@@ -429,6 +500,9 @@ export class StudyService {
         }
         else (history as any).summary = parsedData;
 
+        if (!history.language) {
+            history.language = 'en';
+        }
         history.status = 'COMPLETED';
         (history.metadata as any).progress = 100;
         (history.metadata as any).completedAt = new Date().toISOString();
@@ -464,6 +538,7 @@ export class StudyService {
                 throw new BadRequestException(limit.reason);
             }
 
+            const language = await this.resolveLanguage(userId);
             const config = this.getMaterialConfig(type, options);
 
             // 1. EXTRACT HASH FIRST for Caching
@@ -473,11 +548,14 @@ export class StudyService {
             const docHash = this.aiService.generateHash(extractedText);
 
             // 2. CHECK CACHE (Global wisdom reuse)
-            const cacheQuery: any = {
-                docHash,
-                type,
-                status: 'COMPLETED',
-            };
+            const cacheQuery: any = this.buildLanguageCacheQuery(
+                {
+                    docHash,
+                    type,
+                    status: 'COMPLETED',
+                },
+                language,
+            );
             if (type === 'quiz' && config.quizOptions) {
                 cacheQuery['metadata.quizOptionsHash'] =
                     this.aiService.generateHash(
@@ -507,6 +585,7 @@ export class StudyService {
                     flashcards: existing.flashcards,
                     status: 'COMPLETED',
                     docHash: existing.docHash,
+                    language,
                     metadata: {
                         ...existing.metadata,
                         cachedFrom: existing._id,
@@ -535,7 +614,11 @@ export class StudyService {
             }
 
             // 3. AI GENERATION (Cache Miss)
-            const history = new this.studyModel({ userId, docHash });
+            const history = new this.studyModel({
+                userId,
+                docHash,
+                language,
+            });
 
             const [responseText, uploadResult] = await Promise.all([
                 this.aiService.generateFromFiles(
@@ -543,6 +626,7 @@ export class StudyService {
                     file,
                     userId,
                     history._id.toString(),
+                    { language, format: config.format },
                 ),
                 this.cloudinaryService.uploadFile(file).catch((err) => {
                     console.error(
@@ -562,6 +646,7 @@ export class StudyService {
                 type: type === 'quiz' ? 'quiz' : type,
                 status: 'COMPLETED',
                 docHash,
+                language,
                 metadata: {
                     charCount: responseText.length,
                     timestamp: new Date().toISOString(),

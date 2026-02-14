@@ -280,12 +280,24 @@ export class StudyController {
         }
 
         const userId = req.user.userId;
+        const user = await this.usersService.findOne(userId);
+        let language = (
+            (user as any).preferredLanguage || 'en'
+        ).toString().trim().toLowerCase();
+        if (
+            language === 'english' ||
+            language === 'en' ||
+            language.startsWith('en-')
+        ) {
+            language = 'en';
+        }
 
         // Create job record immediately
         const job = await this.studyService.create(userId, {
             fileName: sectionTitle || `Pages ${pageStart}-${pageEnd}`,
             type,
             status: 'PROCESSING',
+            language,
             metadata: {
                 protocol: 'PDF_SECTION_ASYNC_v1',
                 pageStart,
@@ -334,6 +346,7 @@ export class StudyController {
         try {
             const job = await this.studyService.getJobStatus(jobId);
             if (!job) return;
+            const language = job.language || 'en';
 
             // Update progress: downloading
             (job.metadata as any).progress = 10;
@@ -380,6 +393,8 @@ export class StudyController {
                 config.prompt,
                 extractedText,
                 userId,
+                undefined,
+                { language, format: config.format },
             );
 
             // Update progress: finalizing
@@ -424,12 +439,31 @@ export class StudyController {
         if (!text) throw new BadRequestException('Text is required');
 
         let processedText = text;
+        let resolvedLang = lang;
+        if (!resolvedLang) {
+            const user = await this.usersService.findOne(userId);
+            resolvedLang = (
+                (user as any).preferredLanguage || 'en'
+            ).toString().trim().toLowerCase();
+        }
+        const normalizedLang = (resolvedLang || 'en').toString().trim().toLowerCase();
+        if (
+            normalizedLang === 'english' ||
+            normalizedLang === 'en' ||
+            normalizedLang.startsWith('en-')
+        ) {
+            resolvedLang = 'en';
+        } else {
+            resolvedLang = normalizedLang;
+        }
 
         // Handle Pidgin Translation if requested
         if (isPidgin) {
             processedText = await this.aiService.getResponse(
                 STUDY_PROMPTS.PIDGIN_TRANSLATION(text),
                 userId,
+                undefined,
+                { disableLanguage: true },
             );
         }
 
@@ -437,7 +471,7 @@ export class StudyController {
         const cleanText = processedText.replace(/[#*`]/g, '').trim();
         const voiceUrl = await this.voiceService.generateVoice(
             cleanText,
-            lang || 'en',
+            resolvedLang || 'en',
         );
 
         return {

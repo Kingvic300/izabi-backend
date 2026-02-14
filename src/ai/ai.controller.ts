@@ -75,6 +75,7 @@ export class AiController {
                 message,
                 userId,
                 documentId,
+                { format: 'markdown' },
             );
             await this.aiService.saveMessage(userId, 'assistant', response);
             await this.usersService.incrementActivityCount(
@@ -144,6 +145,7 @@ export class AiController {
                     message,
                     userIdToUse,
                     documentId,
+                    { format: 'markdown' },
                 ),
             );
             const subscription = stream.subscribe({

@@ -136,7 +136,12 @@ export class QuizService {
         }
 
         const fullPrompt = `${STUDY_PROMPTS.QUICK_TEST}\n\n=== SOURCE MATERIALS ===\n${userContent}`;
-        const aiResponse = await this.aiService.getResponse(fullPrompt, userId);
+        const aiResponse = await this.aiService.getResponse(
+            fullPrompt,
+            userId,
+            undefined,
+            { format: 'json' },
+        );
         const testData = this.cleanAiJsonResponse(aiResponse);
 
         const quizResult = await this.quizModel.create({
@@ -281,7 +286,12 @@ export class QuizService {
         const prompt = `Based on this note: "${latestNote.content.substring(0, 1000)}", generate ONE high-quality multiple choice question. 
         Return ONLY JSON: {"id": "daily", "question": "", "options": ["", "", "", ""], "answer": "", "explanation": ""}`;
 
-        const aiResponse = await this.aiService.getResponse(prompt, userId);
+        const aiResponse = await this.aiService.getResponse(
+            prompt,
+            userId,
+            undefined,
+            { format: 'json' },
+        );
         const question = this.cleanAiJsonResponse(aiResponse);
 
         return {

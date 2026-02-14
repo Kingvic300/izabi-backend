@@ -25,6 +25,24 @@ export class MailService {
             mailUser ||
             'no-reply@izabi.ai';
 
+        const brevoApiKey =
+            this.configService.get<string>('BREVO_API_KEY') ||
+            this.configService.get<string>('SIB_API_KEY') ||
+            mailPass;
+
+        if (brevoApiKey) {
+            const defaultClient = SibApiV3Sdk.ApiClient.instance;
+            const apiKey = defaultClient.authentications['api-key'];
+            apiKey.apiKey = brevoApiKey;
+            this.apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
+            this.deliveryMode = 'api';
+            console.log('[MailService] Using Brevo API transport');
+            if (!this.configService.get<string>('BREVO_API_KEY')) {
+                console.log('[MailService] Using MAIL_PASS as API key');
+            }
+            return;
+        }
+
         if (mailHost && mailPortRaw && mailUser && mailPass) {
             const mailPort = Number(mailPortRaw);
             this.smtpTransport = nodemailer.createTransport({
@@ -40,20 +58,6 @@ export class MailService {
             console.log(
                 `[MailService] Using SMTP transport (${mailHost}:${mailPort})`,
             );
-            return;
-        }
-
-        const brevoApiKey =
-            this.configService.get<string>('BREVO_API_KEY') ||
-            this.configService.get<string>('SIB_API_KEY');
-
-        if (brevoApiKey) {
-            const defaultClient = SibApiV3Sdk.ApiClient.instance;
-            const apiKey = defaultClient.authentications['api-key'];
-            apiKey.apiKey = brevoApiKey;
-            this.apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-            this.deliveryMode = 'api';
-            console.log('[MailService] Using Brevo API transport');
             return;
         }
 

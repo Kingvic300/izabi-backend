@@ -38,6 +38,9 @@ export class StudyHistory {
     @Prop({ index: true })
     docHash?: string;
 
+    @Prop({ default: 'en' })
+    language?: string;
+
     @Prop({ type: Object })
     metadata?: Record<string, any>;
 }
