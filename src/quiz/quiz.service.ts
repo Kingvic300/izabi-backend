@@ -185,7 +185,8 @@ export class QuizService {
             (Date.now() - new Date(startTime).getTime()) / 1000,
         );
 
-        if (elapsed > quiz.durationLimit + 30) {
+        const durationLimit = quiz.durationLimit ?? 300;
+        if (elapsed > durationLimit + 30) {
             quiz.status = 'EXPIRED';
             await quiz.save();
             throw new BadRequestException('Time limit exceeded.');

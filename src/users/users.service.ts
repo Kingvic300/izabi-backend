@@ -233,7 +233,7 @@ export class UsersService {
         // 1. Process Global Streak
         const status = this.calculateStreakStatus(
             user,
-            user.lastStreakDate,
+            user.lastStreakDate || null,
             now,
         );
 
@@ -396,7 +396,7 @@ export class UsersService {
         userId: string,
         data: {
             status: 'free' | 'pro' | 'premium';
-            expiry: Date;
+            expiry: Date | undefined;
             customerCode?: string;
         },
     ) {

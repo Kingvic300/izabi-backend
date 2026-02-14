@@ -130,7 +130,7 @@ export class AuthService {
         firstName?: string,
         lastName?: string,
     ) {
-        const normalizedEmail = (email || '').trim().toLowerCase();
+        const normalizedEmail: string = (email || '').trim().toLowerCase();
         if (!normalizedEmail) {
             throw new BadRequestException('Email is required');
         }
@@ -142,17 +142,22 @@ export class AuthService {
         }
 
         const now = new Date();
-        const hasValidOtp =
-            Boolean(existingUser?.otp) &&
-            Boolean(existingUser?.otpExpires) &&
-            now < new Date(existingUser!.otpExpires);
+        let hasValidOtp = false;
+        let otp: string;
+        let expires: Date;
 
-        const otp = hasValidOtp
-            ? existingUser!.otp
-            : Math.floor(100000 + Math.random() * 900000).toString();
-        const expires = hasValidOtp
-            ? existingUser!.otpExpires
-            : new Date(now.getTime() + 10 * 60 * 1000); // 10 mins
+        if (
+            existingUser?.otp &&
+            existingUser?.otpExpires &&
+            now < existingUser.otpExpires
+        ) {
+            hasValidOtp = true;
+            otp = existingUser.otp;
+            expires = existingUser.otpExpires;
+        } else {
+            otp = Math.floor(100000 + Math.random() * 900000).toString();
+            expires = new Date(now.getTime() + 10 * 60 * 1000); // 10 mins
+        }
 
         if (!existingUser) {
             if (!pass || !pass.trim()) {

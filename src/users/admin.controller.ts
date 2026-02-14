@@ -188,7 +188,7 @@ export class AdminController {
                     // Use the UTC-aligned helper for live streak calculation
                     streak: this.calculateLiveStreak(
                         user.streak || 0,
-                        user.lastStreakDate,
+                        user.lastStreakDate || null,
                     ),
                     points: user.points || 0,
                     createdAt: user.createdAt,

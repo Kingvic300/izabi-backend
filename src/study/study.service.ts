@@ -217,10 +217,11 @@ export class StudyService {
             }
             await (history as any).save();
 
+            const historyType = history.type || 'summary';
             await this.finalizeMaterial(
                 history,
                 responseText,
-                history.type,
+                historyType,
                 config,
             );
         } catch (error: any) {
@@ -337,10 +338,11 @@ export class StudyService {
             (history.metadata as any).progress = 80;
             await (history as any).save();
 
+            const historyType = history.type || 'summary';
             await this.finalizeMaterial(
                 history,
                 responseText,
-                history.type,
+                historyType,
                 config,
             );
         } catch (error: any) {
