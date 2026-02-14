@@ -6,16 +6,16 @@ export type AuditLogDocument = AuditLog & Document;
 @Schema({ timestamps: true })
 export class AuditLog {
     @Prop({ required: true, unique: true })
-    eventId: string;
+    eventId!: string;
 
     @Prop({ required: true, enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] })
-    severity: string;
+    severity!: string;
 
     @Prop({ required: true })
-    action: string;
+    action!: string;
 
     @Prop({ required: true, type: Object })
-    user: {
+    user!: {
         userId: string;
         fullName: string;
         email: string;
@@ -30,33 +30,33 @@ export class AuditLog {
     };
 
     @Prop({ required: true, type: Object })
-    request: {
+    request!: {
         method: string;
         route: string;
         resourceId: string | null;
     };
 
     @Prop({ required: true, enum: ['SUCCESS', 'FAILURE'] })
-    outcome: string;
+    outcome!: string;
 
     @Prop({ type: Object, default: {} })
-    metadata: any;
+    metadata!: any;
 
     // HOW: Track if this event has been processed for email digests
     // WHY: Ensures idempotency and avoids duplicate notifications
     @Prop()
-    emailedAt: Date;
+    emailedAt?: Date;
 
     @Prop()
-    errorMessage: string;
+    errorMessage?: string;
 
     // HOW: Support Admin Panel Notification Logic
     // WHY: MEDIUM is dismissible, HIGH/CRITICAL are persistent per requirements
     @Prop({ default: false })
-    isRead: boolean;
+    isRead!: boolean;
 
     @Prop({ default: false })
-    isDismissed: boolean;
+    isDismissed!: boolean;
 
     createdAt?: Date;
     updatedAt?: Date;

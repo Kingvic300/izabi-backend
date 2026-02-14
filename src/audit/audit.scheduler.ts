@@ -4,7 +4,6 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AuditService } from './audit.service';
 import { MailService } from '../mail/mail.service';
-import { AuditLogDocument } from './entities/audit-log.entity';
 import { CronLog, CronLogDocument } from './entities/cron-log.entity';
 import { getAuditDigestTemplate } from '../mail/mail.templates';
 
@@ -40,12 +39,12 @@ export class AuditScheduler {
         this.logger.log(
             `Running Daily Audit Summary (Trigger: ${isExternal ? 'External' : 'Cron'})...`,
         );
-        const events = await this.auditService.getUnsentEventsForWindow(
+        const days = await this.auditService.getUnsentDaysForWindow(
             startOfTodayUtc,
             startOfTomorrowUtc,
         );
 
-        if (events.length === 0) {
+        if (days.length === 0) {
             await this.updateLastRun(
                 this.DAILY_JOB_NAME,
                 'SUCCESS',
@@ -54,12 +53,22 @@ export class AuditScheduler {
             return { status: 'success', message: 'No events' };
         }
 
+        const events = days.flatMap((day) =>
+            (day.events || []).map((event: any) => ({
+                ...event,
+                createdAt: event?.createdAt || event?.timestamp || day.dayStart,
+            })),
+        );
+
         try {
             const subjectDate = startOfTodayUtc.toISOString().split('T')[0];
             await this.sendDigest(
                 `Daily Audit Summary (${subjectDate}, UTC)`,
                 events,
                 'Consolidated report of all audit activity captured today.',
+            );
+            await this.auditService.markDaysAsEmailed(
+                days.map((day) => day._id.toString()),
             );
             await this.updateLastRun(
                 this.DAILY_JOB_NAME,
@@ -120,7 +129,7 @@ export class AuditScheduler {
 
     private async sendDigest(
         subject: string,
-        events: AuditLogDocument[],
+        events: any[],
         description: string,
     ) {
         const grouped = events.reduce(
@@ -140,8 +149,5 @@ export class AuditScheduler {
         });
 
         await this.mailService.sendCustomEmail(this.ADMIN_EMAIL, subject, html);
-        await this.auditService.markAsEmailed(
-            events.map((e) => e._id.toString()),
-        );
     }
 }

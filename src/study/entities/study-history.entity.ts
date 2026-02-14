@@ -6,40 +6,40 @@ export type StudyHistoryDocument = StudyHistory & Document;
 @Schema({ timestamps: true })
 export class StudyHistory {
     @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-    userId: string;
+    userId!: string;
 
     @Prop()
-    fileName: string;
+    fileName?: string;
 
     @Prop()
-    fileUrl: string;
+    fileUrl?: string;
 
     @Prop()
-    type: string;
+    type?: string;
 
     @Prop()
-    summary: string;
+    summary?: string;
 
     @Prop({ type: Object })
-    questions: any;
+    questions?: any;
 
     @Prop({ type: Array })
-    flashcards: any[];
+    flashcards?: any[];
 
     @Prop()
-    topic: string; // Keeping for backward compatibility if needed
+    topic?: string; // Keeping for backward compatibility if needed
 
     @Prop()
-    duration: number;
+    duration?: number;
 
     @Prop({ default: 'COMPLETED' })
-    status: string;
+    status!: string;
 
     @Prop({ index: true })
-    docHash: string;
+    docHash?: string;
 
     @Prop({ type: Object })
-    metadata: Record<string, any>;
+    metadata?: Record<string, any>;
 }
 
 export const StudyHistorySchema = SchemaFactory.createForClass(StudyHistory);

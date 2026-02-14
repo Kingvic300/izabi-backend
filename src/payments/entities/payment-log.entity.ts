@@ -9,7 +9,7 @@ export class PaymentLog {
     userId?: string;
 
     @Prop({ required: true })
-    reference: string;
+    reference!: string;
 
     @Prop()
     amount?: number;
@@ -18,7 +18,7 @@ export class PaymentLog {
     plan?: string;
 
     @Prop({ required: true })
-    event: string;
+    event!: string;
 
     @Prop({ type: Object })
     metadata?: any;

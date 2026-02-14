@@ -6,28 +6,28 @@ export type PaymentDocument = Payment & Document;
 @Schema({ timestamps: true })
 export class Payment {
     @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', required: true })
-    userId: string;
+    userId!: string;
 
     @Prop({ required: true })
-    email: string;
+    email!: string;
 
     @Prop({ required: true })
-    reference: string;
+    reference!: string;
 
     @Prop({ required: true })
-    amount: number;
+    amount!: number;
 
     @Prop({ default: 'pending' })
-    status: 'pending' | 'success' | 'failed' | 'reversed';
+    status!: 'pending' | 'success' | 'failed' | 'reversed';
 
     @Prop({ required: true })
-    plan: 'streak_freeze_package' | 'premium_subscription' | 'one_time_credits';
+    plan!: 'streak_freeze_package' | 'premium_subscription' | 'one_time_credits';
 
     @Prop({ type: Object })
-    metadata: any;
+    metadata?: any;
 
     @Prop()
-    paidAt: Date;
+    paidAt?: Date;
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);

@@ -8,18 +8,18 @@ export class CronLog {
     // HOW: Unified job identifier
     // WHY: Allow multi-job tracking (medium-digest, low-digest)
     @Prop({ required: true, unique: true })
-    jobName: string;
+    jobName!: string;
 
     // HOW: Track precisely when the job logic was last executed successfully
     // WHY: UptimeRobot triggers every 5 mins, but we need 15-min and daily precision
     @Prop({ required: true })
-    lastRunAt: Date;
+    lastRunAt!: Date;
 
     @Prop()
-    status: 'SUCCESS' | 'FAILURE';
+    status?: 'SUCCESS' | 'FAILURE';
 
     @Prop()
-    details: string;
+    details?: string;
 }
 
 export const CronLogSchema = SchemaFactory.createForClass(CronLog);

@@ -6,7 +6,7 @@ export type UserDocument = User & Document;
 @Schema({ timestamps: true })
 export class User {
     @Prop({ required: true, unique: true })
-    email: string;
+    email!: string;
 
     @Prop({ select: false })
     password?: string;
@@ -15,120 +15,120 @@ export class User {
     googleId?: string;
 
     @Prop({ default: 'local' })
-    authProvider: 'local' | 'google';
+    authProvider!: 'local' | 'google';
 
     @Prop({ default: 'USER' })
-    role: string;
+    role!: string;
 
     @Prop()
-    firstName: string;
+    firstName?: string;
 
     @Prop()
-    lastName: string;
+    lastName?: string;
 
     @Prop()
-    phoneNumber: string;
+    phoneNumber?: string;
 
     @Prop()
-    institution: string;
+    institution?: string;
 
     @Prop()
-    major: string;
+    major?: string;
 
     @Prop()
-    location: string;
+    location?: string;
 
     @Prop()
-    profilePicturePath: string;
+    profilePicturePath?: string;
 
     @Prop()
-    otp: string;
+    otp?: string;
 
     @Prop()
-    otpExpires: Date;
+    otpExpires?: Date;
 
     @Prop({ default: false })
-    isVerified: boolean;
+    isVerified!: boolean;
 
     // --- Gamification & Progression ---
 
     @Prop({ default: 0 })
-    points: number;
+    points!: number;
 
     @Prop({ default: 1 }) // Added for the weekly level-up logic
-    level: number;
+    level!: number;
 
     @Prop({ default: 0 })
-    dailyPoints: number;
+    dailyPoints!: number;
 
     @Prop({ default: 0 })
-    dailyDocs: number;
+    dailyDocs!: number;
 
     @Prop({ default: 0 })
-    dailyMessages: number;
+    dailyMessages!: number;
 
     @Prop({ default: 0 })
-    streak: number;
+    streak!: number;
 
     @Prop({ default: 0 })
-    longestStreak: number;
+    longestStreak!: number;
 
     @Prop({ default: 0 }) // Added for the 1-day protection logic
-    streakFreezes: number;
+    streakFreezes!: number;
 
     @Prop()
-    lastStreakDate: Date;
+    lastStreakDate?: Date;
 
     @Prop({ default: 0 })
-    previousXpRank: number;
+    previousXpRank!: number;
 
     @Prop({ default: 0 })
-    previousStreakRank: number;
+    previousStreakRank!: number;
 
     @Prop({ type: Object, default: {} })
-    activityStreaks: Record<
+    activityStreaks!: Record<
         string,
         { current: number; longest: number; lastDate: Date }
     >;
 
     @Prop({ default: 0 })
-    totalStudyMinutes: number;
+    totalStudyMinutes!: number;
 
     @Prop()
-    lastStudyDate: Date;
+    lastStudyDate?: Date;
 
     @Prop({
         type: Object,
         default: { summaries: 0, quizzes: 0, guides: 0, flashcards: 0 },
     })
-    studyStats: any;
+    studyStats!: any;
 
     @Prop({
         type: Object,
         default: { name: 'Izabi Pet', type: 'owl', level: 1, mood: 'happy' },
     })
-    pet: any;
+    pet!: any;
 
     // --- Subscription & Payments ---
     @Prop({ default: 'free' })
-    subscriptionStatus: 'free' | 'pro' | 'premium';
+    subscriptionStatus!: 'free' | 'pro' | 'premium';
 
     @Prop()
-    subscriptionExpiry: Date;
+    subscriptionExpiry?: Date;
 
     @Prop()
-    paystackCustomerCode: string;
+    paystackCustomerCode?: string;
 
     @Prop()
-    paystackSubscriptionCode: string;
+    paystackSubscriptionCode?: string;
 
     // --- System & Integration ---
 
     @Prop()
-    refreshToken: string;
+    refreshToken?: string;
 
     @Prop()
-    groqApiKey: string;
+    groqApiKey?: string;
 
     createdAt?: Date;
     updatedAt?: Date;

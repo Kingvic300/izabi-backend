@@ -6,25 +6,25 @@ export type ExamDocument = Exam & Document;
 @Schema({ timestamps: true })
 export class Exam {
     @Prop({ required: true })
-    title: string;
+    title!: string;
 
     @Prop({ required: true })
-    type: string; // 'JAMB' | 'WAEC' | 'NECO' | 'POST-UTME' | 'UNI-COURSE'
+    type!: string; // 'JAMB' | 'WAEC' | 'NECO' | 'POST-UTME' | 'UNI-COURSE'
 
     @Prop()
-    category: string; // 'Secondary' | 'University'
+    category?: string; // 'Secondary' | 'University'
 
     @Prop()
-    subject: string;
+    subject?: string;
 
     @Prop()
-    year: number;
+    year?: number;
 
     @Prop()
-    institution: string; // For specialized Uni past questions
+    institution?: string; // For specialized Uni past questions
 
     @Prop({ type: Array })
-    questions: {
+    questions?: {
         question: string;
         options: string[];
         answer: string;
@@ -32,7 +32,7 @@ export class Exam {
     }[];
 
     @Prop({ default: 60 })
-    duration: number; // In minutes
+    duration!: number; // In minutes
 }
 
 export const ExamSchema = SchemaFactory.createForClass(Exam);

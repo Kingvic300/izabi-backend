@@ -573,7 +573,7 @@ export const getAuditAlertTemplate = (log: any): string => {
         <div class="brand">IZABI<span>.</span></div>
         <div class="title">Security Audit Alert</div>
         <div class="subtle">Immediate attention required • ${formatAuditDate(
-            log?.createdAt,
+            log?.createdAt || log?.timestamp,
         )}</div>
       </div>
 
@@ -682,7 +682,7 @@ export const getAuditDigestTemplate = ({
 
     const detailRows = events
         .map((event) => {
-            const time = formatAuditDate(event?.createdAt);
+            const time = formatAuditDate(event?.createdAt || event?.timestamp);
             const user = sanitize(event?.user?.fullName || 'Unknown');
             const email = sanitize(event?.user?.email || 'unknown@izabi.ai');
             const action = sanitize(event?.action || 'N/A');

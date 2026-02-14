@@ -6,22 +6,22 @@ export type PDFSplitHistoryDocument = PDFSplitHistory & Document;
 @Schema({ timestamps: true })
 export class PDFSplitHistory {
     @Prop({ required: true })
-    userId: string;
+    userId!: string;
 
     @Prop({ required: true })
-    originalFileName: string;
+    originalFileName!: string;
 
     @Prop()
     originalFileUrl?: string;
 
     @Prop({ required: true })
-    totalPages: number;
+    totalPages!: number;
 
     @Prop({ type: Object })
-    splitSuggestions: any;
+    splitSuggestions?: any;
 
     @Prop({ type: [Object] })
-    processedSections: Array<{
+    processedSections?: Array<{
         sectionId: string;
         pageStart: number;
         pageEnd: number;
@@ -31,10 +31,10 @@ export class PDFSplitHistory {
     }>;
 
     @Prop({ default: 'ACTIVE' })
-    status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+    status!: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 
     @Prop({ type: Object })
-    metadata: any;
+    metadata?: any;
 }
 
 export const PDFSplitHistorySchema =

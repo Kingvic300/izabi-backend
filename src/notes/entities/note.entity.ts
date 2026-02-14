@@ -6,16 +6,16 @@ export type NoteDocument = Note & Document;
 @Schema({ timestamps: true })
 export class Note {
     @Prop({ required: true })
-    title: string;
+    title!: string;
 
     @Prop({ required: true })
-    content: string;
+    content!: string;
 
     @Prop()
-    category: string;
+    category?: string;
 
     @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-    userId: string;
+    userId!: string;
 
     createdAt?: Date;
     updatedAt?: Date;
