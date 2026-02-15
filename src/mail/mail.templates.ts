@@ -716,12 +716,12 @@ export const getAuditDigestTemplate = ({
     const highImpactCount =
         (severityCounts.CRITICAL || 0) + (severityCounts.HIGH || 0);
 
-    const sortedActions = Object.entries(actionCounts).sort(
-        (a, b) => b[1] - a[1],
-    );
-    const sortedUsers = Object.entries(userCounts).sort(
-        (a, b) => b[1] - a[1],
-    );
+    const sortedActions = (
+        Object.entries(actionCounts) as Array<[string, number]>
+    ).sort((a, b) => b[1] - a[1]);
+    const sortedUsers = (
+        Object.entries(userCounts) as Array<[string, number]>
+    ).sort((a, b) => b[1] - a[1]);
 
     const actionRows = sortedActions
         .slice(0, 8)
