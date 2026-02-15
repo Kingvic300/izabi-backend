@@ -1,10 +1,16 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
 export type AuditLogDocument = AuditLog & Document;
 
 @Schema({ timestamps: true })
 export class AuditLog {
+    @Prop({ required: true, index: true })
+    dateKey!: string; // YYYY-MM-DD (UTC)
+
+    @Prop({ type: Types.ObjectId, ref: 'AuditDay', required: true, index: true })
+    auditDay!: Types.ObjectId;
+
     @Prop({ required: true, unique: true })
     eventId!: string;
 
@@ -42,6 +48,9 @@ export class AuditLog {
     @Prop({ type: Object, default: {} })
     metadata!: any;
 
+    @Prop()
+    timestamp?: Date;
+
     // HOW: Track if this event has been processed for email digests
     // WHY: Ensures idempotency and avoids duplicate notifications
     @Prop()
@@ -66,4 +75,6 @@ export const AuditLogSchema = SchemaFactory.createForClass(AuditLog);
 
 // HOW: Indexing for fast digest lookups
 // WHY: Improves performance of the 15-min and daily scheduled cron jobs
+AuditLogSchema.index({ auditDay: 1, createdAt: 1 });
+AuditLogSchema.index({ dateKey: 1, createdAt: 1 });
 AuditLogSchema.index({ severity: 1, emailedAt: 1, createdAt: 1 });

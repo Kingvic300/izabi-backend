@@ -28,21 +28,17 @@ export class AuditScheduler {
 
     // HOW: Triggered by internal cron or external HTTP call
     // WHY: Consolidates all daily audit activity into one summary email
-    @Cron('59 23 * * *')
+    @Cron('5 0 * * *', { timeZone: 'UTC' })
     async handleDailySummary(isExternal = false) {
         if (!(await this.shouldRunToday(this.DAILY_JOB_NAME))) {
             return { status: 'skipped', reason: 'Daily report already sent' };
         }
 
-        const { startOfTodayUtc, startOfTomorrowUtc } =
-            this.getTodayUtcWindow();
+        const { startOfTodayUtc } = this.getTodayUtcWindow();
         this.logger.log(
             `Running Daily Audit Summary (Trigger: ${isExternal ? 'External' : 'Cron'})...`,
         );
-        const days = await this.auditService.getUnsentDaysForWindow(
-            startOfTodayUtc,
-            startOfTomorrowUtc,
-        );
+        const days = await this.auditService.getUnsentDaysBefore(startOfTodayUtc);
 
         if (days.length === 0) {
             await this.updateLastRun(
@@ -53,37 +49,48 @@ export class AuditScheduler {
             return { status: 'success', message: 'No events' };
         }
 
-        const events = days.flatMap((day) =>
-            (day.events || []).map((event: any) => ({
-                ...event,
-                createdAt: event?.createdAt || event?.timestamp || day.dayStart,
-            })),
-        );
+        let totalEvents = 0;
+        const failedDays: string[] = [];
 
-        try {
-            const subjectDate = startOfTodayUtc.toISOString().split('T')[0];
-            await this.sendDigest(
-                `Daily Audit Summary (${subjectDate}, UTC)`,
-                events,
-                'Consolidated report of all audit activity captured today.',
-            );
-            await this.auditService.markDaysAsEmailed(
-                days.map((day) => day._id.toString()),
-            );
-            await this.updateLastRun(
-                this.DAILY_JOB_NAME,
-                'SUCCESS',
-                `Sent ${events.length} events`,
-            );
-            return { status: 'success', sent: events.length };
-        } catch (error) {
+        for (const day of days) {
+            try {
+                const events = await this.auditService.getLogsForDay(day);
+                const subjectDate = day.dateKey;
+                if (events.length === 0) {
+                    await this.auditService.markDaysAsEmailed([day._id.toString()]);
+                    continue;
+                }
+                await this.sendDigest(
+                    `Daily Audit Summary (${subjectDate}, UTC)`,
+                    events,
+                    `Consolidated report of all audit activity captured on ${subjectDate} (UTC).`,
+                );
+                await this.auditService.markDaysAsEmailed([day._id.toString()]);
+                totalEvents += events.length;
+            } catch (error) {
+                failedDays.push(day.dateKey);
+                this.logger.error(
+                    `Failed to send audit summary for ${day.dateKey}`,
+                    error as any,
+                );
+            }
+        }
+
+        if (failedDays.length > 0) {
             await this.updateLastRun(
                 this.DAILY_JOB_NAME,
                 'FAILURE',
-                this.getErrorMessage(error),
+                `Failed days: ${failedDays.join(', ')}`,
             );
-            throw error;
+            return { status: 'partial', failedDays };
         }
+
+        await this.updateLastRun(
+            this.DAILY_JOB_NAME,
+            'SUCCESS',
+            `Sent ${totalEvents} events across ${days.length} day(s)`,
+        );
+        return { status: 'success', sent: totalEvents, days: days.length };
     }
 
     private getTodayUtcWindow(now = new Date()): {

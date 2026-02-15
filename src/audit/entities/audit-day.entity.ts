@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
 export type AuditDayDocument = AuditDay & Document;
 
@@ -14,8 +14,8 @@ export class AuditDay {
     @Prop({ required: true })
     dayEnd!: Date;
 
-    @Prop({ type: [Object], default: [] })
-    events!: any[];
+    @Prop({ type: [{ type: Types.ObjectId, ref: 'AuditLog' }], default: [] })
+    logs!: Types.ObjectId[];
 
     @Prop()
     emailedAt?: Date;
