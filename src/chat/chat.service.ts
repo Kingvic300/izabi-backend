@@ -1,7 +1,8 @@
 import {
     BadRequestException,
     Injectable,
-    TooManyRequestsException,
+    HttpException,
+    HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -95,8 +96,9 @@ export class ChatService {
             const waitSeconds = Math.ceil(
                 (existing.resetAt.getTime() - now) / 1000,
             );
-            throw new TooManyRequestsException(
+            throw new HttpException(
                 `Rate limit exceeded. Try again in ${waitSeconds}s.`,
+                HttpStatus.TOO_MANY_REQUESTS,
             );
         }
 
