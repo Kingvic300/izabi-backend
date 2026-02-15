@@ -14,6 +14,9 @@ export class Note {
     @Prop()
     category?: string;
 
+    @Prop({ type: Types.ObjectId, ref: 'NoteGroup' })
+    groupId?: string;
+
     @Prop({ type: Types.ObjectId, ref: 'User', required: true })
     userId!: string;
 

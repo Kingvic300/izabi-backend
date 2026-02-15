@@ -28,6 +28,11 @@ interface AiResponseOptions {
     disableLanguage?: boolean;
 }
 
+interface ChatHistoryMessage {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
 // Configure global retry for all external API calls (Groq, File Fetching)
 axiosRetry(axios, {
     retries: 3,
@@ -217,6 +222,44 @@ export class AiService {
         // Reply overhead
         total += 3;
         return total;
+    }
+
+    private buildMessagesWithHistory(params: {
+        history: ChatHistoryMessage[];
+        prompt: string;
+        systemPrompt: string;
+        maxHistoryMessages: number;
+        maxInputTokens?: number;
+    }): { role: string; content: string }[] {
+        const maxInputTokens = params.maxInputTokens ?? this.MAX_INPUT_TOKENS;
+        const boundedHistory = (params.history || []).slice(
+            -params.maxHistoryMessages,
+        );
+
+        const build = (history: ChatHistoryMessage[]) => [
+            { role: 'system', content: params.systemPrompt },
+            ...history,
+            { role: 'user', content: params.prompt },
+        ];
+
+        let historyToUse = boundedHistory;
+        let messages = build(historyToUse);
+
+        while (
+            historyToUse.length > 0 &&
+            this.estimateTotalTokens(messages) > maxInputTokens
+        ) {
+            historyToUse = historyToUse.slice(1);
+            messages = build(historyToUse);
+        }
+
+        if (this.estimateTotalTokens(messages) > maxInputTokens) {
+            throw new PayloadTooLargeException(
+                'Request exceeds token limit after trimming history. Please shorten your input.',
+            );
+        }
+
+        return messages;
     }
 
     private async exponentialSleep(attempt: number) {
@@ -561,6 +604,65 @@ export class AiService {
             documentId,
             options,
         );
+    }
+
+    async performContextAwareChatWithHistory(params: {
+        userId: string;
+        message: string;
+        history?: ChatHistoryMessage[];
+        documentId?: string;
+        options?: AiResponseOptions;
+        systemPrompt?: string;
+        maxHistoryMessages?: number;
+        maxInputTokens?: number;
+        skipUserLimits?: boolean;
+    }): Promise<string> {
+        const {
+            userId,
+            message,
+            history = [],
+            documentId,
+            options,
+            systemPrompt,
+            maxHistoryMessages = this.MAX_HISTORY_MESSAGES,
+            maxInputTokens,
+            skipUserLimits,
+        } = params;
+
+        if (userId && !skipUserLimits) {
+            await this.usersService.checkActivityLimit(
+                userId,
+                'dailyMessages',
+            );
+            this.checkRateLimit(userId);
+        }
+
+        const prompt = await this.buildContextAwarePrompt(
+            userId,
+            message,
+            documentId,
+        );
+        const language = await this.resolveLanguage(userId, options);
+        const finalPrompt = this.applyLanguageInstruction(
+            prompt,
+            language,
+            options?.format,
+        );
+
+        const messages = this.buildMessagesWithHistory({
+            history,
+            prompt: finalPrompt,
+            systemPrompt:
+                systemPrompt ||
+                'You are Izabi. Answer efficiently and accurately using the provided context.',
+            maxHistoryMessages,
+            maxInputTokens,
+        });
+
+        return this.executeWithRetry(async (key) => {
+            const res = await this.callGroqApi(messages, key, false);
+            return res.data.choices[0].message.content;
+        }, userId);
     }
 
     async *getResponseStream(

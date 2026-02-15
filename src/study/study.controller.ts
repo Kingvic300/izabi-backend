@@ -54,6 +54,23 @@ export class StudyController {
         };
     }
 
+    @UseGuards(JwtAuthGuard)
+    @Get('leaderboard/share')
+    async getLeaderboardShare(
+        @Req() req: any,
+        @Query('type') type?: string,
+    ) {
+        const userId = req.user?.userId;
+        const share = await this.usersService.getLeaderboardShare(
+            userId,
+            type,
+        );
+        return {
+            success: true,
+            data: share,
+        };
+    }
+
     // --- Standard Synchronous Generators ---
 
     @UseGuards(JwtAuthGuard)

@@ -194,6 +194,17 @@ export class UsersService {
         return elapsed <= this.STREAK_GRACE_WINDOW_MS ? streak || 0 : 0;
     }
 
+    private getDisplayName(user: UserDocument): string {
+        const first = (user.firstName || '').trim();
+        const last = (user.lastName || '').trim();
+        if (first && last) return `${first} ${last[0].toUpperCase()}.`;
+        if (first) return first;
+        if (last) return last;
+        const email = (user.email || '').trim();
+        if (email) return email.split('@')[0];
+        return 'Scholar';
+    }
+
     private computeRollingStreakUpdate(params: {
         streak: number;
         lastActivityAt: Date | null;
@@ -698,6 +709,111 @@ export class UsersService {
             topStudents: topStudentsWithChange,
             topStreaks: topStreaksWithChange,
             userRank,
+        };
+    }
+
+    async getLeaderboardShare(userId: string, type: string = 'xp') {
+        const cleanUserId = (userId || '').trim();
+        if (!cleanUserId) {
+            throw new BadRequestException('userId is required');
+        }
+        if (!/^[0-9a-fA-F]{24}$/.test(cleanUserId)) {
+            throw new BadRequestException('Invalid userId format');
+        }
+
+        const normalizedType = (type || 'xp').toLowerCase();
+        if (normalizedType !== 'xp' && normalizedType !== 'streak') {
+            throw new BadRequestException('type must be "xp" or "streak"');
+        }
+
+        const user = await this.userModel
+            .findById(cleanUserId)
+            .select(
+                'firstName lastName email points streak lastActivityAt lastStreakDate profilePicturePath role',
+            )
+            .exec();
+        if (!user) throw new NotFoundException('User not found');
+        if (['ADMIN', 'admin'].includes(user.role)) {
+            throw new BadRequestException('Admins are not ranked');
+        }
+
+        const points = user.points ?? 0;
+        const liveStreak = this.getLiveStreakValue(
+            user.streak ?? 0,
+            user.lastActivityAt || user.lastStreakDate || null,
+        );
+        const filter = { role: { $nin: ['ADMIN', 'admin'] } };
+
+        let rank: number | null = null;
+        if (normalizedType === 'xp') {
+            rank =
+                (await this.userModel.countDocuments({
+                    ...filter,
+                    $or: [
+                        { points: { $gt: points } },
+                        { points: points, _id: { $lt: user._id } },
+                    ],
+                })) + 1;
+        } else {
+            const streakCandidates = await this.userModel
+                .find(filter)
+                .select('_id streak lastActivityAt lastStreakDate')
+                .exec();
+            const sortedByLiveStreak = streakCandidates
+                .map((candidate) => {
+                    const obj = candidate.toObject();
+                    return {
+                        _id: obj._id,
+                        streak: this.getLiveStreakValue(
+                            obj.streak || 0,
+                            obj.lastActivityAt || obj.lastStreakDate || null,
+                        ),
+                    };
+                })
+                .sort((a: any, b: any) => {
+                    if (b.streak !== a.streak) return b.streak - a.streak;
+                    return String(a._id).localeCompare(String(b._id));
+                });
+            const index = sortedByLiveStreak.findIndex(
+                (candidate: any) =>
+                    String(candidate._id) === String(user._id),
+            );
+            rank = index >= 0 ? index + 1 : null;
+        }
+
+        const displayName = this.getDisplayName(user);
+        const score =
+            normalizedType === 'xp' ? points : Math.max(liveStreak, 0);
+        const scoreLabel =
+            normalizedType === 'xp' ? `${score} XP` : `${score} day streak`;
+        const rankLabel = rank ? `#${rank}` : 'Not Ranked';
+        // Public base URL for share links (can be overridden via env).
+        const baseUrl = (process.env.PUBLIC_APP_URL ||
+            process.env.APP_PUBLIC_URL ||
+            'https://izabi.halixe.com'
+        )
+            .trim()
+            .replace(/\/+$/, '');
+        const shareUrl = `${baseUrl}/leaderboard?userId=${user._id.toString()}`;
+        const shareBody =
+            rank && rank > 0
+                ? `I’m ranked ${rankLabel} on Izabi 🚀 Can you beat me?`
+                : `I’m on the Izabi leaderboard 🚀 Can you beat me?`;
+        const shareText = `${shareBody}\nCheck it out: ${shareUrl}`;
+
+        return {
+            userId: String(user._id),
+            type: normalizedType,
+            displayName,
+            profilePicturePath: user.profilePicturePath,
+            rank,
+            rankLabel,
+            score,
+            scoreLabel,
+            shareUrl,
+            shareBody,
+            shareText,
+            generatedAt: new Date().toISOString(),
         };
     }
 

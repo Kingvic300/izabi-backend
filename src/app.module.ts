@@ -15,6 +15,7 @@ import { ExamsModule } from './exams/exam.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuditModule } from './audit/audit.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
     imports: [
@@ -40,6 +41,7 @@ import { PaymentsModule } from './payments/payments.module';
         ExamsModule,
         AuditModule,
         PaymentsModule,
+        ChatModule,
     ],
     controllers: [AppController],
     providers: [AppService],
