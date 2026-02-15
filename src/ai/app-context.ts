@@ -42,7 +42,7 @@ Theme is managed by \`Izabi/src/components/theme-provider.tsx\`.
 - Implementation: adds \`light\` or \`dark\` class to \`document.documentElement\`
 
 User-facing UI for changing theme is in \`Izabi/src/pages/DashboardSettings.tsx\`:
-- Go to \`/dashboard/settings\`
+- Go to \`settings\`
 - Use the Theme section to select Light / Dark / System (Auto)
 
 ## AI Assistant Chat
