@@ -32,10 +32,18 @@ export class AiController {
 
     @UseGuards(JwtAuthGuard)
     @Get('history')
-    async getHistory(@Req() req: any) {
+    async getHistory(
+        @Req() req: any,
+        @Query('sessionId') sessionId?: string,
+    ) {
         try {
             const userId = req.user.userId;
-            const history = await this.aiService.getChatHistory(userId);
+            const history = sessionId
+                ? await this.aiService.getChatHistoryForSession(
+                      userId,
+                      sessionId,
+                  )
+                : await this.aiService.getChatHistory(userId);
             return { success: true, data: history };
         } catch (error: any) {
             throw new BadRequestException(
@@ -45,11 +53,59 @@ export class AiController {
     }
 
     @UseGuards(JwtAuthGuard)
-    @Post('clear-history')
-    async clearHistory(@Req() req: any) {
+    @Get('history/session')
+    async getHistoryForSession(
+        @Req() req: any,
+        @Query('sessionId') sessionId?: string,
+    ) {
         try {
             const userId = req.user.userId;
-            await this.aiService.clearChatHistory(userId);
+            const history = await this.aiService.getChatHistoryForSession(
+                userId,
+                sessionId,
+            );
+            return { success: true, data: history };
+        } catch (error: any) {
+            throw new BadRequestException(
+                error.message || 'Failed to fetch chat history',
+            );
+        }
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Get('sessions')
+    async getSessions(@Req() req: any) {
+        const userId = req.user.userId;
+        const sessions = await this.aiService.getChatSessions(userId);
+        return { success: true, data: sessions };
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Post('sessions')
+    async createSession(@Req() req: any) {
+        const userId = req.user.userId;
+        const session = await this.aiService.createChatSession(userId);
+        return {
+            success: true,
+            data: {
+                sessionId: session.sessionId,
+                title: session.title,
+                promptCount: session.promptCount || 0,
+                createdAt: session.createdAt,
+                updatedAt: session.updatedAt,
+            },
+        };
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Post('clear-history')
+    async clearHistory(
+        @Req() req: any,
+        @Body('sessionId') sessionId?: string,
+    ) {
+        try {
+            const userId = req.user.userId;
+            await this.aiService.clearChatHistory(userId, sessionId);
             return { success: true, message: 'Chat history cleared' };
         } catch (error: any) {
             throw new BadRequestException(
@@ -63,6 +119,7 @@ export class AiController {
     async chat(
         @Body('message') message: string,
         @Body('documentId') documentId: string | undefined,
+        @Body('sessionId') sessionId: string | undefined,
         @Req() req: any,
     ) {
         try {
@@ -70,20 +127,30 @@ export class AiController {
             if (!message) throw new BadRequestException('message is required');
 
             await this.usersService.checkActivityLimit(userId, 'dailyMessages');
-            await this.aiService.saveMessage(userId, 'user', message);
+            const activeSessionId = await this.aiService.saveMessage(
+                userId,
+                'user',
+                message,
+                sessionId,
+            );
             const response = await this.aiService.getResponse(
                 message,
                 userId,
                 documentId,
                 { format: 'markdown' },
             );
-            await this.aiService.saveMessage(userId, 'assistant', response);
+            await this.aiService.saveMessage(
+                userId,
+                'assistant',
+                response,
+                activeSessionId,
+            );
             await this.usersService.incrementActivityCount(
                 userId,
                 'dailyMessages',
             );
 
-            return { success: true, response };
+            return { success: true, response, sessionId: activeSessionId };
         } catch (error: any) {
             console.error('[AiController] Chat error:', error);
             throw new InternalServerErrorException(
@@ -128,6 +195,7 @@ export class AiController {
     stream(
         @Query('message') message: string,
         @Query('documentId') documentId: string | undefined,
+        @Query('sessionId') sessionId: string | undefined,
         @Req() req: any,
     ): Observable<MessageEvent> {
         const userId = req.user.userId;
@@ -136,41 +204,51 @@ export class AiController {
         // We'll wrap the stream to save messages on completion
         return new Observable((observer) => {
             let fullResponse = '';
+            let subscription: any = null;
+            let cancelled = false;
 
             // Save user message immediately
-            this.aiService.saveMessage(userIdToUse, 'user', message);
-
-            const stream = from(
-                this.aiService.getResponseStream(
-                    message,
-                    userIdToUse,
-                    documentId,
-                    { format: 'markdown' },
-                ),
-            );
-            const subscription = stream.subscribe({
-                next: (event: any) => {
-                    if (event.data === '[DONE]') {
-                        this.aiService.saveMessage(
+            this.aiService
+                .saveMessage(userIdToUse, 'user', message, sessionId)
+                .then((activeSessionId) => {
+                    if (cancelled) return;
+                    const stream = from(
+                        this.aiService.getResponseStream(
+                            message,
                             userIdToUse,
-                            'assistant',
-                            fullResponse,
-                        );
-                        observer.next({ data: '[DONE]' } as MessageEvent);
-                        observer.complete();
-                    } else if (event.data.startsWith('[ERROR]')) {
-                        observer.next(event);
-                        observer.complete();
-                    } else {
-                        fullResponse += event.data;
-                        observer.next(event);
-                    }
-                },
-                error: (err) => observer.error(err),
-                complete: () => observer.complete(),
-            });
+                            documentId,
+                            { format: 'markdown' },
+                        ),
+                    );
+                    subscription = stream.subscribe({
+                        next: (event: any) => {
+                            if (event.data === '[DONE]') {
+                                this.aiService.saveMessage(
+                                    userIdToUse,
+                                    'assistant',
+                                    fullResponse,
+                                    activeSessionId,
+                                );
+                                observer.next({ data: '[DONE]' } as MessageEvent);
+                                observer.complete();
+                            } else if (event.data.startsWith('[ERROR]')) {
+                                observer.next(event);
+                                observer.complete();
+                            } else {
+                                fullResponse += event.data;
+                                observer.next(event);
+                            }
+                        },
+                        error: (err) => observer.error(err),
+                        complete: () => observer.complete(),
+                    });
+                })
+                .catch((err) => observer.error(err));
 
-            return () => subscription.unsubscribe();
+            return () => {
+                cancelled = true;
+                if (subscription) subscription.unsubscribe();
+            };
         });
     }
 

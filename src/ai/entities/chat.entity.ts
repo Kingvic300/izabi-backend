@@ -8,6 +8,15 @@ export class Chat {
     @Prop({ required: true })
     userId!: string;
 
+    @Prop({ required: true, index: true })
+    sessionId!: string;
+
+    @Prop()
+    title?: string;
+
+    @Prop({ default: 0 })
+    promptCount!: number;
+
     @Prop({
         type: [
             {
@@ -23,6 +32,10 @@ export class Chat {
         default: [],
     })
     messages!: { role: string; content: string; timestamp: Date }[];
+
+    createdAt!: Date;
+    updatedAt!: Date;
 }
 
 export const ChatSchema = SchemaFactory.createForClass(Chat);
+ChatSchema.index({ userId: 1, sessionId: 1 }, { unique: true });

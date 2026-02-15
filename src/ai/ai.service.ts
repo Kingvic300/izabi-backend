@@ -5,6 +5,7 @@ import {
     ServiceUnavailableException,
     UnauthorizedException,
     PayloadTooLargeException,
+    NotFoundException,
     Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -16,9 +17,14 @@ import { VectorService } from './vector.service.js';
 import { AiCacheService } from './ai-cache.service.js';
 import { generateHash } from '../common/utils/text-cache.utils.js';
 import { chunkTextBySize } from '../common/utils/text-chunk.utils.js';
+import {
+    IZABI_APP_CONTEXT,
+    IZABI_APP_CONTEXT_VERSION,
+} from './app-context.js';
 import axios from 'axios';
 import axiosRetry from 'axios-retry';
 import { extractTextFromFile } from '../common/utils/text-extractor.js';
+import { v4 as uuidv4 } from 'uuid';
 
 type AiResponseFormat = 'text' | 'markdown' | 'json';
 
@@ -66,9 +72,14 @@ export class AiService {
     // Internal rate limit trigger (requests per minute per user)
     private readonly MAX_REQUESTS_PER_WINDOW = 30;
     private readonly MAX_HISTORY_MESSAGES = 10;
+    private readonly MAX_PROMPTS_PER_SESSION = 100;
+    private readonly MAX_MESSAGES_PER_SESSION = 200;
     private readonly MAX_DOCUMENT_CHUNKS = 300; // Increased to 300 for textbooks
     private readonly backoffBaseMs = 500;
     private readonly backoffCapMs = 12_000;
+    private readonly APP_CONTEXT_DOCUMENT_ID = 'izabi-app-context';
+    private readonly appContextHash = generateHash(IZABI_APP_CONTEXT);
+    private readonly appContextEnsured = new Set<string>();
 
     constructor(
         private configService: ConfigService,
@@ -83,6 +94,31 @@ export class AiService {
                 .split(',')
                 .map((k) => k.trim())
                 .filter((k) => k.length > 0);
+        }
+    }
+
+    private async ensureAppContextIndexed(userId: string) {
+        const resolvedUserId = (userId || '').trim();
+        if (!resolvedUserId) return;
+        if (this.appContextEnsured.has(resolvedUserId)) return;
+
+        try {
+            await this.vectorService.ensureDocument(
+                resolvedUserId,
+                this.APP_CONTEXT_DOCUMENT_ID,
+                IZABI_APP_CONTEXT,
+                {
+                    source: 'izabi-app-context',
+                    version: IZABI_APP_CONTEXT_VERSION,
+                    contentHash: this.appContextHash,
+                    indexedAt: new Date().toISOString(),
+                },
+            );
+            this.appContextEnsured.add(resolvedUserId);
+        } catch (error: any) {
+            this.logger.warn(
+                `[AiService] App context indexing skipped: ${this.summarizeError(error)}`,
+            );
         }
     }
 
@@ -542,10 +578,65 @@ export class AiService {
     async getChatHistory(userId: string): Promise<ChatDocument | null> {
         try {
             if (!userId) throw new Error('UserId is required');
-            const chat = await this.chatModel.findOne({ userId }).exec();
-            if (chat && chat.messages.length > this.MAX_HISTORY_MESSAGES) {
-                chat.messages = chat.messages.slice(-this.MAX_HISTORY_MESSAGES);
-            }
+            const chat = await this.getOrCreateChatSession(userId);
+            return chat;
+        } catch (error: any) {
+            console.error(
+                `[AiService] Error fetching chat history for ${userId}:`,
+                error,
+            );
+            throw new InternalServerErrorException(
+                'Failed to retrieve chat history',
+            );
+        }
+    }
+
+    async getChatSessions(userId: string) {
+        await this.ensureLegacySession(userId);
+        const sessions = await this.chatModel
+            .find({ userId })
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .select('sessionId title promptCount createdAt updatedAt messages')
+            .slice('messages', -1)
+            .lean()
+            .exec();
+
+        return sessions.map((session) => ({
+            sessionId: session.sessionId,
+            title: session.title,
+            promptCount: session.promptCount || 0,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+            lastMessage: session.messages?.[0]
+                ? {
+                      role: session.messages[0].role,
+                      content: session.messages[0].content,
+                      timestamp: session.messages[0].timestamp,
+                  }
+                : null,
+        }));
+    }
+
+    async createChatSession(userId: string, title?: string) {
+        const sessionId = uuidv4();
+        const chat = new this.chatModel({
+            userId,
+            sessionId,
+            title,
+            promptCount: 0,
+            messages: [],
+        });
+        await chat.save();
+        return chat;
+    }
+
+    async getChatHistoryForSession(
+        userId: string,
+        sessionId?: string,
+    ): Promise<ChatDocument | null> {
+        try {
+            if (!userId) throw new Error('UserId is required');
+            const chat = await this.getOrCreateChatSession(userId, sessionId);
             return chat;
         } catch (error: any) {
             console.error(
@@ -562,34 +653,100 @@ export class AiService {
         userId: string,
         role: 'user' | 'assistant',
         content: string,
+        sessionId?: string,
     ) {
         try {
             if (!userId || !content) return;
-            let chat = await this.chatModel.findOne({ userId });
-            if (!chat) {
-                chat = new this.chatModel({ userId, messages: [] });
+            const chat = await this.getOrCreateChatSession(userId, sessionId);
+
+            if (role === 'user') {
+                if (chat.promptCount >= this.MAX_PROMPTS_PER_SESSION) {
+                    throw new BadRequestException(
+                        `This chat has reached ${this.MAX_PROMPTS_PER_SESSION} prompts. Start a new chat.`,
+                    );
+                }
+                chat.promptCount = (chat.promptCount || 0) + 1;
+                if (!chat.title) {
+                    chat.title = content.trim().slice(0, 60);
+                }
             }
+
             chat.messages.push({ role, content, timestamp: new Date() });
-            if (chat.messages.length > 100) {
-                chat.messages = chat.messages.slice(-100);
+            if (chat.messages.length > this.MAX_MESSAGES_PER_SESSION) {
+                chat.messages = chat.messages.slice(-this.MAX_MESSAGES_PER_SESSION);
             }
             await chat.save();
+            return chat.sessionId;
         } catch (error: any) {
             console.error(
                 `[AiService] Error saving message for ${userId}:`,
                 error,
             );
+            if (error instanceof BadRequestException) throw error;
         }
     }
 
-    async clearChatHistory(userId: string): Promise<void> {
+    async clearChatHistory(userId: string, sessionId?: string): Promise<void> {
         try {
-            await this.chatModel.deleteOne({ userId }).exec();
+            if (sessionId) {
+                await this.chatModel
+                    .deleteOne({ userId, sessionId })
+                    .exec();
+                return;
+            }
+            await this.chatModel.deleteMany({ userId }).exec();
         } catch (error) {
             throw new InternalServerErrorException(
                 'Failed to clear chat history',
             );
         }
+    }
+
+    private async ensureLegacySession(userId: string) {
+        const legacy = await this.chatModel
+            .findOne({ userId, sessionId: { $exists: false } })
+            .exec();
+        if (!legacy) return;
+        legacy.sessionId = `legacy-${legacy._id.toString()}`;
+        if (!legacy.title) legacy.title = 'Previous chat';
+        this.ensurePromptCount(legacy);
+        await legacy.save();
+    }
+
+    private async getOrCreateChatSession(
+        userId: string,
+        sessionId?: string,
+    ): Promise<ChatDocument> {
+        await this.ensureLegacySession(userId);
+
+        if (sessionId) {
+            const existing = await this.chatModel
+                .findOne({ userId, sessionId })
+                .exec();
+            if (existing) {
+                this.ensurePromptCount(existing);
+                return existing;
+            }
+            throw new NotFoundException('Chat session not found');
+        }
+
+        const latest = await this.chatModel
+            .findOne({ userId })
+            .sort({ updatedAt: -1, createdAt: -1 })
+            .exec();
+        if (latest) {
+            this.ensurePromptCount(latest);
+            return latest;
+        }
+
+        return this.createChatSession(userId);
+    }
+
+    private ensurePromptCount(chat: ChatDocument) {
+        if (typeof chat.promptCount === 'number') return;
+        chat.promptCount = chat.messages?.filter(
+            (m: any) => m.role === 'user',
+        ).length;
     }
 
     async getResponse(
@@ -840,20 +997,75 @@ export class AiService {
         message: string,
         documentId?: string,
     ): Promise<string> {
+        const trimmedMessage = (message || '').trim();
+        if (trimmedMessage.length < 5) {
+            return trimmedMessage || message;
+        }
+
+        await this.ensureAppContextIndexed(userId);
+
         // 1. Retrieve relevant chunks
         console.log(
             `[AiService] Searching knowledge base for: "${message}"...`,
         );
-        const relevantChunks = await this.vectorService.search(
-            userId,
-            message,
-            documentId,
-            5,
-        );
+        let relevantChunks: any[] = [];
+        try {
+            const queryVector = await this.vectorService.getEmbedding(message);
+            const primaryChunks = await this.vectorService.searchWithVector(
+                userId,
+                queryVector,
+                documentId,
+                5,
+            );
+            const appChunks =
+                documentId === this.APP_CONTEXT_DOCUMENT_ID
+                    ? []
+                    : await this.vectorService.searchWithVector(
+                          userId,
+                          queryVector,
+                          this.APP_CONTEXT_DOCUMENT_ID,
+                          4,
+                      );
+
+            const seen = new Set<string>();
+            const combined = [...primaryChunks, ...appChunks];
+            const deduped: any[] = [];
+            for (const chunk of combined) {
+                const key = String(chunk?._id ?? chunk?.content ?? '');
+                if (!key || seen.has(key)) continue;
+                seen.add(key);
+                deduped.push(chunk);
+            }
+
+            deduped.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+            relevantChunks = deduped.slice(0, 6);
+        } catch (error: any) {
+            this.logger.warn(
+                `[AiService] Vector search fallback: ${this.summarizeError(error)}`,
+            );
+            relevantChunks = [];
+            try {
+                relevantChunks = await this.vectorService.search(
+                    userId,
+                    message,
+                    documentId,
+                    5,
+                );
+            } catch (innerError: any) {
+                this.logger.warn(
+                    `[AiService] Vector search failed: ${this.summarizeError(innerError)}`,
+                );
+            }
+        }
 
         let context = '';
         if (relevantChunks.length > 0) {
-            context = relevantChunks.map((c) => c.content).join('\n\n---\n\n');
+            context = relevantChunks
+                .map(
+                    (c) =>
+                        `[[${c.documentId || 'context'}]]\n${c.content || ''}`,
+                )
+                .join('\n\n---\n\n');
             console.log(
                 `[AiService] Found ${relevantChunks.length} relevant chunks.`,
             );
@@ -862,7 +1074,7 @@ export class AiService {
         }
 
         return context
-            ? `Use the following context to answer the user's question. If the answer is not in the context, say so, but try to be helpful based on the context provided.\n\n[CONTEXT]\n${context}\n\n[USER QUESTION]\n${message}`
+            ? `Use the following context to answer the user's question (it may include Izabi app routes/features and/or user documents). Prefer the context. If the context does not fully answer an app-specific question, ask 1-2 quick clarifying questions, then provide the most likely steps for Izabi.\n\n[CONTEXT]\n${context}\n\n[USER QUESTION]\n${message}`
             : message;
     }
 

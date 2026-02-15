@@ -146,21 +146,43 @@ export class VectorService implements OnModuleInit {
         this.logger.log(`Finished storing vectors for ${documentId}`);
     }
 
-    async search(
+    async ensureDocument(
         userId: string,
-        query: string,
+        documentId: string,
+        text: string,
+        metadata: Record<string, any> = {},
+    ): Promise<boolean> {
+        const existing = await this.knowledgeModel
+            .findOne({ userId, documentId })
+            .select('metadata')
+            .lean()
+            .exec();
+
+        const nextHash = (metadata as any)?.contentHash;
+        const existingHash = (existing as any)?.metadata?.contentHash;
+
+        if (existing && nextHash && existingHash === nextHash) {
+            return false;
+        }
+
+        await this.addDocument(userId, documentId, text, metadata);
+        return true;
+    }
+
+    async searchWithVector(
+        userId: string,
+        queryVector: number[],
         documentId?: string,
         limit = 5,
+        candidateLimit = 500,
     ): Promise<SearchResult[]> {
-        const queryVector = await this.getEmbedding(query);
-
         const filter: Record<string, any> = { userId };
         if (documentId) filter.documentId = documentId;
 
         const candidates = await this.knowledgeModel
             .find(filter)
             .sort({ createdAt: -1 })
-            .limit(500)
+            .limit(candidateLimit)
             .lean();
 
         if (!candidates.length) return [];
@@ -176,7 +198,16 @@ export class VectorService implements OnModuleInit {
         }));
 
         scored.sort((a, b) => b.score - a.score);
-
         return scored.slice(0, limit);
+    }
+
+    async search(
+        userId: string,
+        query: string,
+        documentId?: string,
+        limit = 5,
+    ): Promise<SearchResult[]> {
+        const queryVector = await this.getEmbedding(query);
+        return this.searchWithVector(userId, queryVector, documentId, limit);
     }
 }

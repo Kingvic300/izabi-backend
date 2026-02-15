@@ -4,6 +4,8 @@ import {
     ConflictException,
     BadRequestException,
     InternalServerErrorException,
+    Inject,
+    forwardRef,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
@@ -11,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { MailService } from '../mail/mail.service';
 import { OAuth2Client } from 'google-auth-library';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class AuthService {
@@ -21,6 +24,8 @@ export class AuthService {
         private jwtService: JwtService,
         private configService: ConfigService,
         private mailService: MailService,
+        @Inject(forwardRef(() => AiService))
+        private aiService: AiService,
     ) {
         this.googleClient = new OAuth2Client(
             this.configService.get<string>('GOOGLE_CLIENT_ID') || '',
@@ -49,6 +54,16 @@ export class AuthService {
 
         // Trigger a check-in on login to update streaks and pet status
         const updatedUser = await this.usersService.checkIn(userId);
+
+        // Create a fresh chat session on login (non-blocking).
+        this.aiService
+            .createChatSession(userId)
+            .catch((err) =>
+                console.warn(
+                    '[AuthService] Failed to create chat session on login:',
+                    err?.message || err,
+                ),
+            );
 
         const tokens = await this.getTokens(userId, user.email, user.role);
         await this.updateRefreshToken(userId, tokens.refreshToken);

@@ -5,12 +5,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
+import { AiModule } from '../ai/ai.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshJwtStrategy } from './strategies/refresh-jwt.strategy';
 
 @Module({
     imports: [
         forwardRef(() => UsersModule),
+        forwardRef(() => AiModule),
         PassportModule,
         JwtModule.register({}),
     ],
