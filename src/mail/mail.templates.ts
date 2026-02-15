@@ -45,7 +45,7 @@ export const getOtpEmailTemplate = (otp: string): string => {
       }
 
       .logo {
-        font-size: 26px;
+        font-size: 30px;
         font-weight: 800;
         color: #ffffff;
       }
@@ -202,7 +202,7 @@ export const getWelcomeEmailTemplate = (name: string): string => {
         body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; -webkit-text-size-adjust: 100%; }
         .container { width: 100%; max-width: 600px; margin: 20px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 24px; overflow: hidden; }
         .header { padding: 40px; text-align: center; }
-        .logo { font-size: 24px; font-weight: 800; color: #fff; text-decoration: none; }
+        .logo { font-size: 28px; font-weight: 800; color: #fff; text-decoration: none; }
         .logo span { color: #3b82f6; }
         .hero { padding: 0 40px 40px 40px; text-align: center; }
         .h1 { font-size: 32px; font-weight: 800; margin-bottom: 16px; color: #ffffff; letter-spacing: -1px; }
@@ -311,7 +311,7 @@ export const getStreakFreezeTemplate = (
         body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; -webkit-text-size-adjust: 100%; }
         .container { width: 100%; max-width: 600px; margin: 20px auto; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 24px; overflow: hidden; }
         .header { padding: 40px; text-align: center; background: linear-gradient(to bottom, #1e293b, #0f172a); }
-        .logo { font-size: 24px; font-weight: 800; color: #fff; text-decoration: none; }
+        .logo { font-size: 28px; font-weight: 800; color: #fff; text-decoration: none; }
         .logo span { color: #3b82f6; }
         .content { padding: 40px; text-align: center; }
         .title { font-size: 28px; font-weight: 800; margin-bottom: 16px; color: #ffffff; letter-spacing: -1px; }

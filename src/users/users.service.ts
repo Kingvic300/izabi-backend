@@ -11,7 +11,8 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-    private readonly STREAK_RESET_WINDOW_MS = 24 * 60 * 60 * 1000;
+    private readonly STREAK_INCREMENT_WINDOW_MS = 24 * 60 * 60 * 1000;
+    private readonly STREAK_GRACE_WINDOW_MS = 26 * 60 * 60 * 1000;
 
     constructor(
         @InjectModel(User.name) private userModel: Model<UserDocument>,
@@ -186,97 +187,165 @@ export class UsersService {
 
     private getLiveStreakValue(
         streak: number,
-        lastDate: Date | null,
+        lastActivityAt: Date | null,
         now: Date = new Date(),
     ): number {
-        const elapsed = this.getElapsedMs(lastDate, now);
-        return elapsed <= this.STREAK_RESET_WINDOW_MS ? streak || 0 : 0;
+        const elapsed = this.getElapsedMs(lastActivityAt, now);
+        return elapsed <= this.STREAK_GRACE_WINDOW_MS ? streak || 0 : 0;
     }
 
-    private calculateStreakStatus(
-        user: UserDocument,
-        lastActivityDate: Date | null,
+    private computeRollingStreakUpdate(params: {
+        streak: number;
+        lastActivityAt: Date | null;
+        lastStreakIncrementAt: Date | null;
+        now: Date;
+    }) {
+        const { streak, lastActivityAt, lastStreakIncrementAt, now } = params;
+        const hasStreak = (streak || 0) > 0;
+
+        if (!hasStreak) {
+            return {
+                streak: 1,
+                lastActivityAt: now,
+                lastStreakIncrementAt: now,
+                didIncrement: true,
+                didReset: false,
+                nextIncrementInMs: this.STREAK_INCREMENT_WINDOW_MS,
+            };
+        }
+
+        if (!lastActivityAt || !lastStreakIncrementAt) {
+            return {
+                streak,
+                lastActivityAt: now,
+                lastStreakIncrementAt: now,
+                didIncrement: false,
+                didReset: false,
+                nextIncrementInMs: this.STREAK_INCREMENT_WINDOW_MS,
+            };
+        }
+
+        const timeSinceLastActivity = now.getTime() - lastActivityAt.getTime();
+        const timeSinceLastIncrement =
+            now.getTime() - lastStreakIncrementAt.getTime();
+
+        if (timeSinceLastActivity >= this.STREAK_GRACE_WINDOW_MS) {
+            return {
+                streak: 1,
+                lastActivityAt: now,
+                lastStreakIncrementAt: now,
+                didIncrement: false,
+                didReset: true,
+                nextIncrementInMs: this.STREAK_INCREMENT_WINDOW_MS,
+            };
+        }
+
+        if (
+            timeSinceLastIncrement >= this.STREAK_INCREMENT_WINDOW_MS &&
+            timeSinceLastActivity < this.STREAK_INCREMENT_WINDOW_MS
+        ) {
+            return {
+                streak: streak + 1,
+                lastActivityAt: now,
+                lastStreakIncrementAt: now,
+                didIncrement: true,
+                didReset: false,
+                nextIncrementInMs: this.STREAK_INCREMENT_WINDOW_MS,
+            };
+        }
+
+        return {
+            streak,
+            lastActivityAt: now,
+            lastStreakIncrementAt,
+            didIncrement: false,
+            didReset: false,
+            nextIncrementInMs: Math.max(
+                0,
+                this.STREAK_INCREMENT_WINDOW_MS - timeSinceLastIncrement,
+            ),
+        };
+    }
+
+    private getNextIncrementInMs(
+        lastStreakIncrementAt: Date | null,
         now: Date,
-    ) {
-        if (!lastActivityDate) {
-            return { streak: 1, isNewDay: true, freezeUsed: false };
-        }
-
-        const todayUTC = this.getMidnightUTC(now);
-        const lastUTC = this.getMidnightUTC(lastActivityDate);
-        const msPerDay = this.STREAK_RESET_WINDOW_MS;
-        const diffDays = Math.floor((todayUTC - lastUTC) / msPerDay);
-        const elapsedMs = this.getElapsedMs(lastActivityDate, now);
-
-        if (diffDays === 0) {
-            return {
-                streak: user.streak || 1,
-                isNewDay: false,
-                freezeUsed: false,
-            };
-        }
-
-        if (diffDays === 1 && elapsedMs <= this.STREAK_RESET_WINDOW_MS) {
-            return {
-                streak: (user.streak || 0) + 1,
-                isNewDay: true,
-                freezeUsed: false,
-            };
-        }
-
-        return { streak: 1, isNewDay: true, freezeUsed: false };
+    ): number | null {
+        if (!lastStreakIncrementAt) return null;
+        const elapsed = now.getTime() - lastStreakIncrementAt.getTime();
+        return Math.max(0, this.STREAK_INCREMENT_WINDOW_MS - elapsed);
     }
 
     private updateStreak(user: UserDocument, activityType: string) {
         const now = new Date();
 
-        // 1. Process Global Streak
-        const status = this.calculateStreakStatus(
-            user,
-            user.lastStreakDate || null,
+        // 1. Process Global Streak (rolling 24-hour window)
+        const previousStreak = user.streak || 0;
+        const globalUpdate = this.computeRollingStreakUpdate({
+            streak: previousStreak,
+            lastActivityAt:
+                user.lastActivityAt ||
+                user.lastStudyDate ||
+                user.lastStreakDate ||
+                null,
+            lastStreakIncrementAt:
+                user.lastStreakIncrementAt || user.lastStreakDate || null,
             now,
-        );
+        });
 
-        if (status.isNewDay) {
-            const oldStreak = user.streak || 0;
-            user.streak = status.streak;
-            user.longestStreak = Math.max(user.longestStreak || 0, user.streak);
-            user.lastStreakDate = now;
+        user.streak = globalUpdate.streak;
+        user.lastActivityAt = globalUpdate.lastActivityAt;
+        user.lastStreakIncrementAt = globalUpdate.lastStreakIncrementAt;
+        // Legacy field (kept for backward compatibility)
+        user.lastStreakDate = globalUpdate.lastStreakIncrementAt;
 
-            // Milestone: Level up every 7 days + 500 XP reward
-            if (
-                user.streak > 0 &&
-                user.streak % 7 === 0 &&
-                user.streak !== oldStreak
-            ) {
-                user.level = (user.level || 1) + 1;
-                user.points += 500;
-            }
+        if (globalUpdate.didIncrement || previousStreak === 0) {
+            user.longestStreak = Math.max(
+                user.longestStreak || 0,
+                user.streak,
+            );
         }
 
-        // 2. Process Activity Streaks
+        // Milestone: Level up every 7 days + 500 XP reward
+        if (
+            globalUpdate.didIncrement &&
+            user.streak > 0 &&
+            user.streak % 7 === 0 &&
+            user.streak !== previousStreak
+        ) {
+            user.level = (user.level || 1) + 1;
+            user.points += 500;
+        }
+
+        // 2. Process Activity Streaks (rolling 24-hour window)
         if (!user.activityStreaks) user.activityStreaks = {};
         const activity = user.activityStreaks[activityType] || {
             current: 0,
             longest: 0,
             lastDate: null,
+            lastActivityAt: null,
+            lastStreakIncrementAt: null,
         };
-        const actStatus = this.calculateStreakStatus(
-            user,
-            activity.lastDate,
-            now,
-        );
 
-        if (actStatus.isNewDay) {
-            activity.current = actStatus.streak;
-            activity.longest = Math.max(
-                activity.longest || 0,
-                activity.current,
-            );
-            activity.lastDate = now;
-            user.activityStreaks[activityType] = activity;
-            user.markModified('activityStreaks');
-        }
+        const activityUpdate = this.computeRollingStreakUpdate({
+            streak: activity.current || 0,
+            lastActivityAt: activity.lastActivityAt || activity.lastDate || null,
+            lastStreakIncrementAt:
+                activity.lastStreakIncrementAt || activity.lastDate || null,
+            now,
+        });
+
+        activity.current = activityUpdate.streak;
+        activity.longest = Math.max(
+            activity.longest || 0,
+            activity.current,
+        );
+        activity.lastActivityAt = activityUpdate.lastActivityAt;
+        activity.lastStreakIncrementAt = activityUpdate.lastStreakIncrementAt;
+        activity.lastDate = activityUpdate.lastActivityAt;
+
+        user.activityStreaks[activityType] = activity;
+        user.markModified('activityStreaks');
     }
 
     // --- Core Gamification Methods ---
@@ -492,7 +561,11 @@ export class UsersService {
         const now = new Date();
         const liveStreak = this.getLiveStreakValue(
             user.streak || 0,
-            user.lastStreakDate || null,
+            user.lastActivityAt || user.lastStreakDate || null,
+            now,
+        );
+        const nextIncrementInMs = this.getNextIncrementInMs(
+            user.lastStreakIncrementAt || user.lastStreakDate || null,
             now,
         );
         let status = 'active';
@@ -505,12 +578,15 @@ export class UsersService {
             academicStreak: liveStreak,
             loginStreak: this.getLiveStreakValue(
                 user.activityStreaks?.login?.current || 0,
-                user.activityStreaks?.login?.lastDate || null,
+                user.activityStreaks?.login?.lastActivityAt ||
+                    user.activityStreaks?.login?.lastDate ||
+                    null,
                 now,
             ),
             streakFreezes: user.streakFreezes || 0,
             status: status,
             longestStreak: user.longestStreak || 0,
+            nextIncrementInMs: nextIncrementInMs,
         };
     }
 
@@ -527,7 +603,7 @@ export class UsersService {
             .exec();
         const streakCandidates = await this.userModel
             .find(filter)
-            .select(`${projection} lastStreakDate role`)
+            .select(`${projection} lastActivityAt lastStreakDate role`)
             .exec();
 
         const sortedByLiveStreak = streakCandidates
@@ -537,7 +613,7 @@ export class UsersService {
                     ...obj,
                     streak: this.getLiveStreakValue(
                         obj.streak || 0,
-                        obj.lastStreakDate || null,
+                        obj.lastActivityAt || obj.lastStreakDate || null,
                     ),
                 };
             })
@@ -590,7 +666,7 @@ export class UsersService {
                     const userPoints = user.points ?? 0;
                     const userStreak = this.getLiveStreakValue(
                         user.streak ?? 0,
-                        user.lastStreakDate || null,
+                        user.lastActivityAt || user.lastStreakDate || null,
                     );
 
                     const xpRank =

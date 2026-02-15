@@ -19,7 +19,7 @@ import { MailService } from '../mail/mail.service';
 @Controller('api/admin')
 @UseGuards(JwtAuthGuard)
 export class AdminController {
-    private readonly STREAK_RESET_WINDOW_MS = 24 * 60 * 60 * 1000;
+    private readonly STREAK_GRACE_WINDOW_MS = 26 * 60 * 60 * 1000;
 
     constructor(
         private readonly usersService: UsersService,
@@ -32,10 +32,14 @@ export class AdminController {
      * Helper to calculate a live streak from raw DB data.
      * Aligns with UsersService rolling 24-hour logic.
      */
-    private calculateLiveStreak(streak: number, lastDate: Date | null): number {
-        if (!lastDate) return 0;
-        const diffMs = new Date().getTime() - new Date(lastDate).getTime();
-        return diffMs <= this.STREAK_RESET_WINDOW_MS ? streak || 0 : 0;
+    private calculateLiveStreak(
+        streak: number,
+        lastActivityAt: Date | null,
+    ): number {
+        if (!lastActivityAt) return 0;
+        const diffMs =
+            new Date().getTime() - new Date(lastActivityAt).getTime();
+        return diffMs <= this.STREAK_GRACE_WINDOW_MS ? streak || 0 : 0;
     }
 
     /**
@@ -188,7 +192,7 @@ export class AdminController {
                     // Use the UTC-aligned helper for live streak calculation
                     streak: this.calculateLiveStreak(
                         user.streak || 0,
-                        user.lastStreakDate || null,
+                        user.lastActivityAt || user.lastStreakDate || null,
                     ),
                     points: user.points || 0,
                     createdAt: user.createdAt,

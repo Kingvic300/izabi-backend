@@ -77,6 +77,12 @@ export class User {
     streakFreezes!: number;
 
     @Prop()
+    lastActivityAt?: Date;
+
+    @Prop()
+    lastStreakIncrementAt?: Date;
+
+    @Prop()
     lastStreakDate?: Date;
 
     @Prop({ default: 0 })
@@ -88,7 +94,13 @@ export class User {
     @Prop({ type: Object, default: {} })
     activityStreaks!: Record<
         string,
-        { current: number; longest: number; lastDate: Date }
+        {
+            current: number;
+            longest: number;
+            lastDate?: Date;
+            lastActivityAt?: Date;
+            lastStreakIncrementAt?: Date;
+        }
     >;
 
     @Prop({ default: 0 })
