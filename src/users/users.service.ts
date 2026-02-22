@@ -4,7 +4,7 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, isValidObjectId } from 'mongoose';
 import { User, UserDocument } from './entities/user.entity';
 import { CreateUserDto, UpdateProfileDto } from './dto/user.dto';
 import * as bcrypt from 'bcrypt';
@@ -121,6 +121,10 @@ export class UsersService {
     }
 
     async findOne(id: string): Promise<UserDocument> {
+        // Validate MongoDB ObjectId format
+        if (!isValidObjectId(id)) {
+            throw new BadRequestException(`Invalid user ID format: ${id}`);
+        }
         const user = await this.userModel.findById(id).exec();
         if (!user) throw new NotFoundException(`User with ID ${id} not found`);
         return user;
@@ -171,6 +175,20 @@ export class UsersService {
     }
 
     // --- Professional Streak Engine ---
+
+    /**
+     * Safely convert a value to a Date object.
+     * Handles strings, Date objects, and null/undefined.
+     */
+    private toDate(value: any): Date | null {
+        if (!value) return null;
+        if (value instanceof Date) return value;
+        if (typeof value === 'string' || typeof value === 'number') {
+            const date = new Date(value);
+            return isNaN(date.getTime()) ? null : date;
+        }
+        return null;
+    }
 
     private getMidnightUTC(date: Date): number {
         return Date.UTC(
@@ -570,13 +588,18 @@ export class UsersService {
         if (!user) throw new NotFoundException('User not found');
 
         const now = new Date();
+
+        // Safely convert date fields to handle strings or malformed dates in DB
+        const lastActivityAt = this.toDate(user.lastActivityAt || user.lastStreakDate || null);
+        const lastStreakIncrementAt = this.toDate(user.lastStreakIncrementAt || user.lastStreakDate || null);
+
         const liveStreak = this.getLiveStreakValue(
             user.streak || 0,
-            user.lastActivityAt || user.lastStreakDate || null,
+            lastActivityAt,
             now,
         );
         const nextIncrementInMs = this.getNextIncrementInMs(
-            user.lastStreakIncrementAt || user.lastStreakDate || null,
+            lastStreakIncrementAt,
             now,
         );
         let status = 'active';
@@ -585,13 +608,17 @@ export class UsersService {
             status = 'expired';
         }
 
+        // Safely handle activityStreaks.login
+        const loginActivity = user.activityStreaks?.login;
+        const loginLastActivityAt = this.toDate(
+            loginActivity?.lastActivityAt || loginActivity?.lastDate || null
+        );
+
         return {
             academicStreak: liveStreak,
             loginStreak: this.getLiveStreakValue(
-                user.activityStreaks?.login?.current || 0,
-                user.activityStreaks?.login?.lastActivityAt ||
-                    user.activityStreaks?.login?.lastDate ||
-                    null,
+                loginActivity?.current || 0,
+                loginLastActivityAt,
                 now,
             ),
             streakFreezes: user.streakFreezes || 0,
@@ -858,26 +885,6 @@ export class UsersService {
     }
 
     // --- Admin & Utils ---
-
-    async updateGroqKey(userId: string, apiKey: string): Promise<void> {
-        await this.userModel
-            .findByIdAndUpdate(userId, { groqApiKey: apiKey })
-            .exec();
-    }
-
-    async getContributedKeysCount(): Promise<number> {
-        return this.userModel
-            .countDocuments({ groqApiKey: { $exists: true, $ne: null } })
-            .exec();
-    }
-
-    async getUsersWithKeys(): Promise<UserDocument[]> {
-        return this.userModel
-            .find({ groqApiKey: { $exists: true, $ne: null } })
-            .select('groqApiKey createdAt')
-            .exec();
-    }
-
     async checkActivityLimit(
         userId: string,
         type: 'dailyDocs' | 'dailyMessages',

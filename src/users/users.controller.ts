@@ -180,12 +180,4 @@ export class UsersController {
         const user = await this.usersService.feedPet(req.user.userId);
         return { success: true, data: { pet: user.pet, points: user.points } };
     }
-
-    @UseGuards(JwtAuthGuard)
-    @Post('submit-groq-key')
-    async submitGroqKey(@Req() req: any, @Body() body: { apiKey: string }) {
-        await this.usersService.updateGroqKey(req.user.userId, body.apiKey);
-        return { success: true, message: 'API key updated' };
-    }
-
 }

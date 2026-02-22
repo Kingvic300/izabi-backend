@@ -5,6 +5,7 @@ import {
     Param,
     UseGuards,
     NotFoundException,
+    BadRequestException,
     Post,
     Body,
     Req,
@@ -50,8 +51,7 @@ export class AdminController {
         try {
             const users = await this.usersService.findAll();
             const notes = await this.notesService.countAll();
-            const contributedKeys =
-                await this.usersService.getContributedKeysCount();
+
 
             // Active users (logged in within last 24 hours)
             const oneDayAgo = new Date();
@@ -157,7 +157,6 @@ export class AdminController {
                     totalUsers: users.length,
                     activeNow: activeUsers.length,
                     totalNotes: notes,
-                    contributedKeys: contributedKeys,
                     growth: parseFloat(growth as string),
                     userGrowthChart,
                     activityChart,
@@ -275,6 +274,10 @@ export class AdminController {
                 },
             };
         } catch (error: any) {
+            // Re-throw BadRequestException (for invalid ID format) as-is
+            if (error.status === 400 || error instanceof BadRequestException) {
+                throw error;
+            }
             throw new NotFoundException(
                 error.message || 'Failed to fetch user history',
             );
@@ -347,31 +350,6 @@ export class AdminController {
             failed,
             failures,
         };
-    }
-
-    /**
-     * Get all contributed Groq API keys
-     */
-    @Get('contributed-keys')
-    async getContributedKeys() {
-        try {
-            const usersWithKeys = await this.usersService.getUsersWithKeys();
-            return {
-                success: true,
-                data: usersWithKeys.map((user) => ({
-                    id: user._id,
-                    userId: user._id,
-                    apiKey: user.groqApiKey,
-                    createdAt: user.createdAt,
-                })),
-            };
-        } catch (error) {
-            return {
-                success: false,
-                message: 'Failed to fetch contributed keys',
-                data: [],
-            };
-        }
     }
 
     /**
