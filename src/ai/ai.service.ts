@@ -597,24 +597,48 @@ export class AiService {
             .find({ userId })
             .sort({ updatedAt: -1, createdAt: -1 })
             .select('sessionId title promptCount createdAt updatedAt messages')
-            .slice('messages', -1)
+            .slice('messages', -2)
             .lean()
             .exec();
 
-        return sessions.map((session) => ({
-            sessionId: session.sessionId,
-            title: session.title,
-            promptCount: session.promptCount || 0,
-            createdAt: session.createdAt,
-            updatedAt: session.updatedAt,
-            lastMessage: session.messages?.[0]
-                ? {
-                      role: session.messages[0].role,
-                      content: session.messages[0].content,
-                      timestamp: session.messages[0].timestamp,
-                  }
-                : null,
-        }));
+        return sessions.map((session) => {
+            const messages = session.messages || [];
+            const lastAssistant = [...messages]
+                .reverse()
+                .find((m: any) => m?.role === 'assistant');
+            const lastUser = [...messages]
+                .reverse()
+                .find((m: any) => m?.role === 'user');
+
+            return {
+                sessionId: session.sessionId,
+                title: session.title,
+                promptCount: session.promptCount || 0,
+                createdAt: session.createdAt,
+                updatedAt: session.updatedAt,
+                lastUserMessage: lastUser
+                    ? {
+                          role: lastUser.role,
+                          content: lastUser.content,
+                          timestamp: lastUser.timestamp,
+                      }
+                    : null,
+                lastAssistantMessage: lastAssistant
+                    ? {
+                          role: lastAssistant.role,
+                          content: lastAssistant.content,
+                          timestamp: lastAssistant.timestamp,
+                      }
+                    : null,
+                lastMessage: session.messages?.[0]
+                    ? {
+                          role: session.messages[0].role,
+                          content: session.messages[0].content,
+                          timestamp: session.messages[0].timestamp,
+                      }
+                    : null,
+            };
+        });
     }
 
     async createChatSession(userId: string, title?: string) {

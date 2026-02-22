@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NotesService } from '../notes/notes.service';
 import { QuizService } from '../quiz/quiz.service';
 import { MailService } from '../mail/mail.service';
+import { ImpersonationService } from './impersonation.service';
 
 @Controller('api/admin')
 @UseGuards(JwtAuthGuard)
@@ -27,6 +28,7 @@ export class AdminController {
         private readonly notesService: NotesService,
         private readonly quizService: QuizService,
         private readonly mailService: MailService,
+        private readonly impersonationService: ImpersonationService,
     ) {}
 
     /**
@@ -352,7 +354,7 @@ export class AdminController {
         };
     }
 
-    /**
+/**
      * Delete a user
      */
     @Delete('users/:id')
@@ -363,5 +365,112 @@ export class AdminController {
         } catch (error) {
             return { success: false, message: 'Failed to delete user' };
         }
+    }
+
+    // ============================================================
+    // IMPERSONATION ENDPOINTS
+    // ============================================================
+
+    /**
+     * Start impersonating a user
+     * POST /api/admin/impersonate/:userId
+     */
+    @Post('impersonate/:userId')
+    async startImpersonation(@Req() req: any, @Param('userId') targetUserId: string) {
+        const adminId = req.user.userId;
+        
+        try {
+            const result = await this.impersonationService.startImpersonation(
+                adminId,
+                targetUserId,
+                req,
+            );
+            return {
+                success: true,
+                message: 'Impersonation started',
+                data: result,
+            };
+        } catch (error: any) {
+            if (error.status === 403) {
+                throw new ForbiddenException(error.message);
+            }
+            if (error.status === 404) {
+                throw new NotFoundException(error.message);
+            }
+            if (error.status === 400) {
+                throw new BadRequestException(error.message);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Stop impersonation
+     * POST /api/admin/stop-impersonation
+     */
+    @Post('stop-impersonation')
+    async stopImpersonation(@Req() req: any) {
+        const adminId = req.user?.impersonatedBy || req.user.userId;
+        
+        try {
+            const result = await this.impersonationService.stopImpersonation(adminId, req);
+            return {
+                ...result,
+                success: true,
+            };
+        } catch (error: any) {
+            if (error.status === 404) {
+                throw new NotFoundException(error.message);
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Get impersonation status
+     * GET /api/admin/impersonation-status
+     */
+    @Get('impersonation-status')
+    async getImpersonationStatus(@Req() req: any) {
+        const adminId = req.user.userId;
+        const isImpersonating = await this.impersonationService.isImpersonating(adminId);
+        const activeSession = await this.impersonationService.getActiveImpersonation(adminId);
+        
+        return {
+            success: true,
+            data: {
+                isImpersonating,
+                activeSession: activeSession ? {
+                    targetUserId: activeSession.targetUserId,
+                    startedAt: activeSession.startedAt,
+                    actionsPerformed: Object.keys(activeSession.actionsPerformed || {}),
+                } : null,
+            },
+        };
+    }
+
+    /**
+     * Get impersonation history
+     * GET /api/admin/impersonation-history
+     */
+    @Get('impersonation-history')
+    async getImpersonationHistory(@Req() req: any) {
+        const adminId = req.user.userId;
+        const history = await this.impersonationService.getImpersonationHistory(adminId, 20);
+        
+        return {
+            success: true,
+            data: history.map(item => ({
+                id: item._id,
+                targetUserId: item.targetUserId,
+                targetUserEmail: (item as any).targetUserId?.email,
+                targetUserName: (item as any).targetUserId?.firstName,
+                action: item.action,
+                startedAt: item.startedAt,
+                endedAt: item.endedAt,
+                wasManual: item.wasManual,
+                actionsPerformed: Object.keys(item.actionsPerformed || {}),
+            })),
+            };
     }
 }

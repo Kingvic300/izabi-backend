@@ -761,7 +761,12 @@ export class UsersService {
             .exec();
         if (!user) throw new NotFoundException('User not found');
         if (['ADMIN', 'admin'].includes(user.role)) {
-            throw new BadRequestException('Admins are not ranked');
+            return {
+                disabled: true,
+                reason: 'Admins are not ranked',
+                type: normalizedType,
+                generatedAt: new Date().toISOString(),
+            };
         }
 
         const points = user.points ?? 0;
