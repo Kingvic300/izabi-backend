@@ -1518,7 +1518,14 @@ export class AiService {
         meta: Record<string, any> = {},
         options?: AiResponseOptions,
     ): Promise<string> {
-        const prompt = `Summarize the following content for quick review. Keep it concise, bullet if helpful.\n\n${text}`;
+        const prompt = `Summarize the following content for quick review. Keep it concise, bullet if helpful.
+Return Markdown with these sections:
+## Summary
+## Key Points
+## Knowledge Diagram (use a mermaid flowchart TB with <= 10 nodes, short labels, fenced with \`\`\`mermaid)
+## Sources (3-5 bullets; each bullet includes a short quote <= 18 words plus a brief context label)
+Do not invent external sources or links. Use only the provided content.
+\n\n${text}`;
         const language = await this.resolveLanguage(userId, options);
         const promptWithLanguage = this.applyLanguageInstruction(
             prompt,

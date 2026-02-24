@@ -9,7 +9,11 @@ import * as streamifier from 'streamifier';
 export class VoiceService {
     constructor(private readonly cloudinaryService: CloudinaryService) {}
 
-    async generateVoice(text: string, lang: string = 'en'): Promise<string> {
+    async generateVoice(
+        text: string,
+        lang: string = 'en',
+        options?: { slow?: boolean },
+    ): Promise<string> {
         if (!text || text.trim().length === 0) {
             throw new InternalServerErrorException(
                 'Text is required for voice generation',
@@ -23,7 +27,7 @@ export class VoiceService {
             // 2. Get all audio URLs (Google TTS splits text into ~200 char chunks)
             const audioUrls = getAllAudioUrls(cleanText, {
                 lang: lang,
-                slow: false,
+                slow: Boolean(options?.slow),
                 host: 'https://translate.google.com',
                 splitPunct: '. ',
             });

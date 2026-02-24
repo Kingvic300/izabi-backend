@@ -54,6 +54,17 @@ export class StudyController {
         };
     }
 
+    @Get('leaderboard/public')
+    async getPublicLeaderboard(@Query('userId') userId?: string) {
+        const leaderboard = await this.usersService.getPublicLeaderboard(
+            userId,
+        );
+        return {
+            success: true,
+            data: leaderboard,
+        };
+    }
+
     @UseGuards(JwtAuthGuard)
     @Get('leaderboard/share')
     async getLeaderboardShare(
@@ -450,6 +461,8 @@ export class StudyController {
         @Body('text') text: string,
         @Body('lang') lang: string,
         @Body('isPidgin') isPidgin: boolean,
+        @Body('voice') voice: string,
+        @Body('speed') speed: number,
         @Req() req: any,
     ) {
         const userId = req.user.userId;
@@ -463,7 +476,10 @@ export class StudyController {
                 (user as any).preferredLanguage || 'en'
             ).toString().trim().toLowerCase();
         }
-        const normalizedLang = (resolvedLang || 'en').toString().trim().toLowerCase();
+        const normalizedLang = (resolvedLang || 'en')
+            .toString()
+            .trim()
+            .toLowerCase();
         if (
             normalizedLang === 'english' ||
             normalizedLang === 'en' ||
@@ -472,6 +488,11 @@ export class StudyController {
             resolvedLang = 'en';
         } else {
             resolvedLang = normalizedLang;
+        }
+
+        const requestedVoice = (voice || '').toString().trim().toLowerCase();
+        if (requestedVoice) {
+            resolvedLang = requestedVoice;
         }
 
         // Handle Pidgin Translation if requested
@@ -486,9 +507,15 @@ export class StudyController {
 
         // Clean Markdown artifacts (#, *, `) before sending to TTS
         const cleanText = processedText.replace(/[#*`]/g, '').trim();
+        const speedValue =
+            typeof speed === 'number' && Number.isFinite(speed)
+                ? speed
+                : 1;
+        const slow = speedValue < 0.95;
         const voiceUrl = await this.voiceService.generateVoice(
             cleanText,
             resolvedLang || 'en',
+            { slow },
         );
 
         return {

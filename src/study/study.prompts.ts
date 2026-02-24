@@ -16,7 +16,11 @@ STRUCTURE:
 - **SYLLABUS MAPPING**: Break down the 5-10 primary architectural concepts found in the text.
 - **INTEGRATED SYNTHESIS**: A narrative connecting these concepts logically.
 - **EXAM-READY DATA**: 5 verbatim facts, dates, or formulas critical for retention.
-FORMAT: Return in clean Markdown.`,
+ - **KNOWLEDGE DIAGRAM**: Provide a Mermaid diagram (flowchart TB) showing relationships between the key concepts. Limit to 12 nodes and use short labels. Wrap it in a fenced code block labeled mermaid.
+ - **SOURCES**: 3-6 bullet points. Each bullet must include a short quote (<= 18 words) from the document plus a brief context label (e.g., "From: section on X").
+CONSTRAINTS:
+- Do not invent external sources or links. Sources must be from the provided document only.
+FORMAT: Return in clean Markdown with a section titled "## Knowledge Diagram" containing a mermaid code block, and a section titled "## Sources".`,
 
     FLASHCARDS: `Transform this material into exactly 10 high-recall Flashcards (or fewer if content is limited).
 RULES:

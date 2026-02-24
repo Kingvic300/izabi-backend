@@ -739,6 +739,20 @@ export class UsersService {
         };
     }
 
+    async getPublicLeaderboard(userId?: string) {
+        const leaderboard = await this.getLeaderboard(userId);
+        const stripEmail = (user: any) => {
+            if (!user) return user;
+            const { email, ...rest } = user;
+            return rest;
+        };
+        return {
+            topStudents: (leaderboard.topStudents || []).map(stripEmail),
+            topStreaks: (leaderboard.topStreaks || []).map(stripEmail),
+            userRank: leaderboard.userRank,
+        };
+    }
+
     async getLeaderboardShare(userId: string, type: string = 'xp') {
         const cleanUserId = (userId || '').trim();
         if (!cleanUserId) {
