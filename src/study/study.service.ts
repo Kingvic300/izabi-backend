@@ -148,6 +148,18 @@ export class StudyService {
             lang?: string;
         },
     ) {
+        return this.startMultiDirectUpload(userId, [file], data);
+    }
+
+    async startMultiDirectUpload(
+        userId: string,
+        files: Express.Multer.File[],
+        data: {
+            type: 'summary' | 'flashcards' | 'quiz' | 'study-guide';
+            options?: any;
+            lang?: string;
+        },
+    ) {
         // 0. Usage Limit Check
         const limit = await this.usersService.checkUsageLimit(
             userId,
@@ -160,11 +172,19 @@ export class StudyService {
         const language = await this.resolveLanguage(userId, data.lang);
         const config = this.getMaterialConfig(data.type, data.options);
 
-        // 1. Content Fingerprinting
+        // 1. Content Fingerprinting (Combined)
         const { extractTextFromFile } =
             await import('../common/utils/text-extractor.js');
-        const extractedText = await extractTextFromFile(file);
-        const docHash = this.aiService.generateHash(extractedText);
+        
+        let combinedText = '';
+        const fileNames = files.map(f => f.originalname);
+        
+        for (const file of files) {
+            const text = await extractTextFromFile(file);
+            combinedText += `\n\n--- Source: ${file.originalname} ---\n\n` + text;
+        }
+
+        const docHash = this.aiService.generateHash(combinedText);
 
         // 2. Cache Interception
         const cacheQuery: any = this.buildLanguageCacheQuery(
@@ -184,7 +204,7 @@ export class StudyService {
         const existing = await this.studyModel.findOne(cacheQuery).exec();
         if (existing) {
             const history = await this.create(userId, {
-                fileName: file.originalname,
+                fileName: fileNames.join(', '),
                 fileUrl: existing.fileUrl,
                 type: data.type,
                 summary: existing.summary,
@@ -196,6 +216,7 @@ export class StudyService {
                 metadata: {
                     protocol: 'CACHE_HITS_v1',
                     reusedFrom: existing._id,
+                    fileNames,
                 },
             });
             await this.usersService.addPoints(
@@ -207,16 +228,18 @@ export class StudyService {
         }
 
         const history = await this.create(userId, {
-            fileName: file.originalname,
+            fileName: fileNames.join(', '),
             type: data.type,
             status: 'PROCESSING',
             docHash,
             language,
             metadata: {
-                protocol: 'DIRECT_ASYNC_v2',
+                protocol: 'DIRECT_ASYNC_MULTI_v1',
                 timestamp: new Date().toISOString(),
+                fileNames,
             },
         });
+        
         if (data.type === 'quiz' && config.quizOptions) {
             (history.metadata as any).quizOptions = config.quizOptions;
             (history.metadata as any).quizOptionsHash =
@@ -225,9 +248,9 @@ export class StudyService {
                 );
         }
 
-        this.processBackgroundDirect(history, file, config).catch((err) => {
+        this.processBackgroundMultiDirect(history, files, combinedText, config).catch((err) => {
             console.error(
-                `[StudyService] Direct background failure for ${history._id}:`,
+                `[StudyService] Multi-direct background failure for ${history._id}:`,
                 err,
             );
         });
@@ -239,59 +262,77 @@ export class StudyService {
         };
     }
 
-    private async processBackgroundDirect(
+    private async processBackgroundMultiDirect(
         history: StudyHistoryDocument,
-        file: Express.Multer.File,
+        files: Express.Multer.File[],
+        combinedText: string,
         config: any,
     ) {
         try {
-            // Stage 1: Initial Sync
+            const userId = history.userId;
+            const language = history.language || 'en';
+
+            // Stage 1: Initial Sync & Uploading
             (history.metadata as any).progress = 10;
             await (history as any).save();
 
-            const [responseText, uploadResult] = await Promise.all([
-                this.aiService.generateFromFiles(
-                    config.prompt,
-                    file,
-                    history.userId,
-                    history._id.toString(),
-                    {
-                        language: history.language || 'en',
-                        format: config.format,
-                    },
-                ),
-                this.cloudinaryService.uploadFile(file).catch((err) => {
-                    console.warn(
-                        `[StudyService] BG Cloudinary fallback failed:`,
-                        err,
-                    );
-                    return null;
-                }),
-            ]);
-
-            // Stage 2: Processing Complete
-            (history.metadata as any).progress = 85;
-            if (uploadResult && (uploadResult as any).secure_url) {
-                history.fileUrl = (uploadResult as any).secure_url;
+            const uploadResult = await this.cloudinaryService.uploadFile(files[0]);
+            history.fileUrl = uploadResult.secure_url;
+            
+            // If multiple files, store all URLs in metadata
+            if (files.length > 1) {
+                const allUrls = [uploadResult.secure_url];
+                for (let i = 1; i < files.length; i++) {
+                    const res = await this.cloudinaryService.uploadFile(files[i]);
+                    allUrls.push(res.secure_url);
+                }
+                (history.metadata as any).fileUrls = allUrls;
             }
+
+            (history.metadata as any).progress = 30;
             await (history as any).save();
 
-            const historyType = history.type || 'summary';
+            // Stage 2: Processing with AI
+            const responseText = await this.aiService.processExtractedText(
+                config.prompt,
+                combinedText,
+                userId,
+                undefined,
+                { language, format: config.format },
+            );
+
+            (history.metadata as any).progress = 80;
+            await (history as any).save();
+
+            // Stage 3: Finalization
             await this.finalizeMaterial(
                 history,
                 responseText,
-                historyType,
+                history.type || 'summary',
                 config,
             );
+
+            (history.metadata as any).progress = 100;
+            await (history as any).save();
         } catch (error: any) {
             console.error(
-                `[StudyService] Direct BG processing failed for ${history._id}:`,
+                `[StudyService] Multi-direct background failure for ${history._id}:`,
                 error,
             );
             history.status = 'FAILED';
             (history.metadata as any).error = error.message;
             await (history as any).save();
         }
+    }
+
+    private async processBackgroundDirect(
+        history: StudyHistoryDocument,
+        file: Express.Multer.File,
+        config: any,
+    ) {
+        const { extractTextFromFile } = await import('../common/utils/text-extractor.js');
+        const text = await extractTextFromFile(file);
+        return this.processBackgroundMultiDirect(history, [file], text, config);
     }
 
     async startTextIngestion(
@@ -436,6 +477,16 @@ export class StudyService {
         let parsedData: any = responseText;
         if (type === 'flashcards' || type === 'quiz') {
             try {
+                const isNotFound = responseText.toLowerCase().includes('not contain enough information') || 
+                                 responseText.toLowerCase().includes('information is missing');
+                
+                if (isNotFound && !responseText.includes('[')) {
+                    history.status = 'FAILED';
+                    (history.metadata as any).error = "The uploaded materials do not contain enough information to complete this task.";
+                    await (history as any).save();
+                    return;
+                }
+
                 let cleaned = responseText.replace(/```json|```/g, '').trim();
 
                 // Find the absolute start of JSON structure

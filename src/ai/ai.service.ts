@@ -28,10 +28,12 @@ import { v4 as uuidv4 } from 'uuid';
 
 type AiResponseFormat = 'text' | 'markdown' | 'json';
 
+
 interface AiResponseOptions {
     language?: string;
     format?: AiResponseFormat;
     disableLanguage?: boolean;
+    systemPrompt?: string;
 }
 
 interface ChatHistoryMessage {
@@ -835,7 +837,14 @@ export class AiService {
             prompt: finalPrompt,
             systemPrompt:
                 systemPrompt ||
-                'You are Izabi. Answer efficiently and accurately using the provided context.',
+                `You are an Academic AI assistant designed to answer questions strictly using provided study materials.
+RULES:
+1. Use ONLY the information contained in the provided Context.
+2. Synthesize multiple context sections logically.
+3. If the answer is not supported, respond exactly: "The uploaded materials do not contain enough information to answer this."
+4. No outside knowledge or facts.
+5. Cite sources using their document label in parentheses (e.g., (Document Name)) after relevant statements.
+6. Prioritize accuracy over creativity.`,
             maxHistoryMessages,
             maxInputTokens,
         });
@@ -888,7 +897,7 @@ export class AiService {
                         {
                             role: 'system',
                             content:
-                                'You are Izabi, a world-class AI Learning Assistant. Use Markdown and prioritize provided context when available.',
+                                'You are Izabi, a world-class Academic AI Assistant. You answer questions strictly based on the provided context. If information is missing, you state: "The uploaded materials do not contain enough information to answer this." Do not use outside knowledge. Cite sources per chunk label.',
                         },
                         { role: 'user', content: finalPrompt },
                     ],
@@ -1000,12 +1009,13 @@ export class AiService {
             `[AiService] Prompt prepared. length: ${prompt.length}. Entering executeWithRetry...`,
         );
         return this.executeWithRetry(async (key) => {
+            const systemPrompt = options?.systemPrompt ||
+                'You are an Academic AI assistant. Answer strictly based on the provided context sections. If the answer is not in the context, say "The uploaded materials do not contain enough information to answer this." Cite your sources (Document Label).';
             const res = await this.callGroqApi(
                 [
                     {
                         role: 'system',
-                        content:
-                            'You are Izabi. Answer efficiently and accurately using the provided context.',
+                        content: systemPrompt,
                     },
                     { role: 'user', content: finalPrompt },
                 ],
@@ -1035,10 +1045,14 @@ export class AiService {
         let relevantChunks: any[] = [];
         try {
             const queryVector = await this.vectorService.getEmbedding(message);
+            const searchFilter = documentId && documentId.includes(',')
+                ? { $in: documentId.split(',').map(id => id.trim()).filter(id => id.length > 0) }
+                : documentId;
+
             const primaryChunks = await this.vectorService.searchWithVector(
                 userId,
                 queryVector,
-                documentId,
+                searchFilter as any,
                 5,
             );
             const appChunks =
@@ -1098,14 +1112,26 @@ export class AiService {
         }
 
         return context
-            ? `Use the following context to answer the user's question (it may include Izabi app routes/features and/or user documents). Prefer the context. If the context does not fully answer an app-specific question, ask 1-2 quick clarifying questions, then provide the most likely steps for Izabi.\n\n[CONTEXT]\n${context}\n\n[USER QUESTION]\n${message}`
+            ? `Evaluate the provided context and answer the user's question.
+RULES:
+- Use ONLY the provided context.
+- Cite sources using their document labels in parentheses.
+- If the context doesn't answer the question, return: "The uploaded materials do not contain enough information to answer this."
+- If the question is about using the Izabi app, use the [izabi-app-context] sections to give step-by-step instructions.
+
+Context:
+${context}
+
+User Question:
+${message}`
             : message;
     }
 
-    async uploadPdfForChat(userId: string, file: Express.Multer.File) {
+    async uploadFileForChat(userId: string, file: Express.Multer.File) {
         const extractedText = await extractTextFromFile(file);
         const contentHash = this.generateHash(extractedText);
-        const documentId = `pdf-${contentHash.slice(0, 24)}`;
+        const fileExt = file.originalname.split('.').pop() || 'tmp';
+        const documentId = `doc-${contentHash.slice(0, 20)}-${fileExt}`;
 
         await this.vectorService.addDocument(userId, documentId, extractedText, {
             source: 'pdf-upload',
@@ -1314,7 +1340,6 @@ export class AiService {
             promptHash,
             normalizedText,
         );
-        const cacheEmbedding = similarity.embedding;
         if (similarity.match) {
             this.logger.log(
                 `[AiService] Cache hit (similarity=${similarity.match.score.toFixed(
@@ -1497,7 +1522,6 @@ export class AiService {
             promptHash,
             normalizedText,
             responseText,
-            cacheEmbedding,
             {
                 docHash,
                 source: 'processExtractedText',

@@ -7,13 +7,14 @@ import {
     Param,
     UseInterceptors,
     UploadedFile,
+    UploadedFiles,
     BadRequestException,
     InternalServerErrorException,
     UseGuards,
     Req,
 } from '@nestjs/common';
 import { StudyService } from './study.service';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AiService } from '../ai/ai.service';
 import { VoiceService } from './voice.service';
@@ -181,6 +182,31 @@ export class StudyController {
         const parsedOptions = options ? JSON.parse(options) : {};
 
         return this.studyService.startDirectUpload(userId, file, {
+            type: type as any,
+            options: parsedOptions,
+        });
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Post('ingest-multi-direct')
+    @UseInterceptors(
+        FilesInterceptor('files', 5, { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
+    )
+    async ingestMultiDirect(
+        @UploadedFiles() files: Express.Multer.File[],
+        @Req() req: any,
+        @Body('type') type: string,
+        @Body('options') options?: string,
+    ) {
+        if (!files || files.length === 0)
+            throw new BadRequestException(
+                'At least one file is required.',
+            );
+
+        const userId = req.user.userId;
+        const parsedOptions = options ? JSON.parse(options) : {};
+
+        return this.studyService.startMultiDirectUpload(userId, files, {
             type: type as any,
             options: parsedOptions,
         });

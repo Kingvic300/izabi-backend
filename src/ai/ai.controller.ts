@@ -12,13 +12,14 @@ import {
     Req,
     UseInterceptors,
     UploadedFile,
+    UploadedFiles,
     Param,
 } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { UsersService } from '../users/users.service';
 import { Observable, from } from 'rxjs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { MAX_UPLOAD_SIZE_BYTES } from '../common/constants/upload.constants';
 import { AiQueueService } from './ai.queue.service';
 
@@ -253,6 +254,47 @@ export class AiController {
     }
 
     @UseGuards(JwtAuthGuard)
+    @Post('upload-files')
+    @UseInterceptors(
+        FilesInterceptor('files', 5, {
+            limits: { fileSize: MAX_UPLOAD_SIZE_BYTES },
+        }),
+    )
+    async uploadFiles(
+        @UploadedFiles() files: Express.Multer.File[],
+        @Req() req: any,
+    ) {
+        try {
+            if (!files || files.length === 0) {
+                throw new BadRequestException('At least one file is required');
+            }
+
+            if (files.length > 5) {
+                throw new BadRequestException('Maximum 5 files allowed');
+            }
+
+            const userId = req.user.userId;
+            const results = await Promise.all(
+                files.map((file) => this.aiService.uploadFileForChat(userId, file)),
+            );
+
+            return {
+                success: true,
+                data: results,
+                message: `${files.length} file(s) uploaded and indexed for chat`,
+            };
+        } catch (error: any) {
+            if (error instanceof BadRequestException) {
+                throw error;
+            }
+            throw new InternalServerErrorException(
+                error.message || 'Failed to upload files',
+            );
+        }
+    }
+
+    // Maintain backward compatibility for a while
+    @UseGuards(JwtAuthGuard)
     @Post('upload-pdf')
     @UseInterceptors(
         FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_SIZE_BYTES } }),
@@ -260,30 +302,23 @@ export class AiController {
     async uploadPdf(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
         try {
             if (!file) {
-                throw new BadRequestException('PDF file is required');
-            }
-
-            const mime = (file.mimetype || '').toLowerCase();
-            const fileName = (file.originalname || '').toLowerCase();
-            const isPdf = mime.includes('pdf') || fileName.endsWith('.pdf');
-            if (!isPdf) {
-                throw new BadRequestException('Only PDF files are supported');
+                throw new BadRequestException('File is required');
             }
 
             const userId = req.user.userId;
-            const data = await this.aiService.uploadPdfForChat(userId, file);
+            const data = await this.aiService.uploadFileForChat(userId, file);
 
             return {
                 success: true,
                 data,
-                message: 'PDF uploaded and indexed for chat',
+                message: 'File uploaded and indexed for chat',
             };
         } catch (error: any) {
             if (error instanceof BadRequestException) {
                 throw error;
             }
             throw new InternalServerErrorException(
-                error.message || 'Failed to upload PDF',
+                error.message || 'Failed to upload file',
             );
         }
     }

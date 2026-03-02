@@ -11,8 +11,19 @@ import {
 } from './entities/knowledge-base.entity';
 import { AiJob, AiJobSchema } from './entities/ai-job.entity';
 import { AiCache, AiCacheSchema } from './entities/ai-cache.entity';
+import {
+    AiCacheChunk,
+    AiCacheChunkSchema,
+} from './entities/ai-cache-chunk.entity';
+import {
+    EmbeddingCache,
+    EmbeddingCacheSchema,
+} from './entities/embedding-cache.entity';
 import { AiQueueService } from './ai.queue.service';
 import { AiCacheService } from './ai-cache.service';
+import { EmbeddingQueueService } from './embedding-queue.service';
+import { EmbeddingJob, EmbeddingJobSchema } from './entities/embedding-job.entity';
+import { EmbeddingWorkerService } from './embedding-worker.service';
 
 @Module({
     imports: [
@@ -21,11 +32,27 @@ import { AiCacheService } from './ai-cache.service';
             { name: KnowledgeBase.name, schema: KnowledgeBaseSchema },
             { name: AiJob.name, schema: AiJobSchema },
             { name: AiCache.name, schema: AiCacheSchema },
+            { name: AiCacheChunk.name, schema: AiCacheChunkSchema },
+            { name: EmbeddingCache.name, schema: EmbeddingCacheSchema },
+            { name: EmbeddingJob.name, schema: EmbeddingJobSchema },
         ]),
         forwardRef(() => UsersModule),
     ],
     controllers: [AiController],
-    providers: [AiService, VectorService, AiQueueService, AiCacheService],
-    exports: [AiService, VectorService, AiQueueService, AiCacheService],
+    providers: [
+        AiService,
+        VectorService,
+        AiQueueService,
+        AiCacheService,
+        EmbeddingQueueService,
+        EmbeddingWorkerService,
+    ],
+    exports: [
+        AiService,
+        VectorService,
+        AiQueueService,
+        AiCacheService,
+        EmbeddingQueueService,
+    ],
 })
 export class AiModule {}

@@ -7,25 +7,32 @@
  */
 
 export const STUDY_PROMPTS = {
-    SUMMARY: `Analyze this document as an expert Academic Strategist. Generate a summary optimized for exam preparation.
-RULES:
-- Use strict source grounding.
-- Identify "High-Yield" topics likely to appear in JAMB, WAEC, or University exams.
-STRUCTURE:
-- **NEURAL CORE**: The document's essence in one powerful sentence.
-- **SYLLABUS MAPPING**: Break down the 5-10 primary architectural concepts found in the text.
-- **INTEGRATED SYNTHESIS**: A narrative connecting these concepts logically.
-- **EXAM-READY DATA**: 5 verbatim facts, dates, or formulas critical for retention.
- - **KNOWLEDGE DIAGRAM**: Provide a Mermaid diagram (flowchart TB) showing relationships between the key concepts. Limit to 12 nodes and use short labels. Wrap it in a fenced code block labeled mermaid.
- - **SOURCES**: 3-6 bullet points. Each bullet must include a short quote (<= 18 words) from the document plus a brief context label (e.g., "From: section on X").
-CONSTRAINTS:
-- Do not invent external sources or links. Sources must be from the provided document only.
-FORMAT: Return in clean Markdown with a section titled "## Knowledge Diagram" containing a mermaid code block, and a section titled "## Sources".`,
+    SUMMARY: `Evaluate the provided context as an expert Academic Strategist.
+TASKS:
+1. Summarize the provided context clearly and accurately based ONLY on the text.
+2. Identify and highlight key definitions and primary ideas.
+3. Organize using structured bullet points.
+4. Keep the summary concise but academically complete.
 
-    FLASHCARDS: `Transform this material into exactly 10 high-recall Flashcards (or fewer if content is limited).
 RULES:
-- No semantic repetition. 
-- Front must be a question or concept; Back must be a concise resolution.
+- Do not add outside information or invent facts.
+- Highlight "High-Yield" topics likely to appear in exams.
+- If the content is insufficient for a structured summary, return: "The provided materials do not contain enough information to answer this."
+
+STRUCTURE:
+- **SYLLABUS CORE**: One sentence essence.
+- **CONCEPT BREAKDOWN**: Bulleted list of primary architectural/academic concepts.
+- **KNOWLEDGE DIAGRAM**: Provide a Mermaid diagram (flowchart TB) showing relationships between the key concepts. Limit to 10 nodes. Wrap in a fenced code block labeled mermaid.
+- **VERBATIM SOURCES**: 3-5 bullet points with short quotes (<= 18 words) and section labels.
+
+FORMAT: Return in clean Markdown.`,
+
+    FLASHCARDS: `Transform this material into exactly 10 high-recall Flashcards focusing on key concepts.
+RULES:
+- Use ONLY provided context.
+- Keep answers short, precise, and focused on core definitions.
+- No semantic repetition.
+
 RETURN ONLY a JSON array:
 [{"front": "string", "back": "string"}]`,
 
@@ -60,11 +67,14 @@ RETURN ONLY a JSON array:
                   ? 'STYLE: Only "short_answer" questions. Options must be null.'
                   : 'STYLE: Mixed. Use both "multiple_choice" and "short_answer" when possible.';
 
-        return `Generate exactly ${count} Practice Questions based ONLY on the provided context.
+        return `Generate exactly ${count} Multiple-Choice Questions based ONLY on the provided context.
 RULES:
-- "multiple_choice" must have exactly 4 options.
-- "short_answer" must have a null options array.
+- TEST UNDERSTANDING: Questions must evaluate comprehension of concepts, not simple memorization of facts.
+- Exactly 4 options (A-D) per question.
+- Clearly indicate the correct answer.
 - Distractors must be plausible but clearly incorrect based on the text.
+- Do not include explanations unless requested.
+- If the answer is not found in the context, return: "The provided materials do not contain enough information to answer this."
 ${difficultyRule}
 ${styleRule}
 RETURN ONLY a JSON array:
@@ -73,8 +83,8 @@ RETURN ONLY a JSON array:
         "question": "string",
         "options": ["string", "string", "string", "string"],
         "answer": "string",
-        "questionType": "multiple_choice" | "short_answer",
-        "explanation": "Verbatim link to the context explaining why this is correct."
+        "questionType": "multiple_choice",
+        "explanation": "Verbatim link to the context explaining the correct logic."
     }
  ]`;
     },

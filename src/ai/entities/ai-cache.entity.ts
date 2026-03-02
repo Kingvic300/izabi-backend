@@ -17,16 +17,23 @@ export class AiCache {
     @Prop({ required: true })
     normalizedText!: string;
 
-    @Prop({ type: [Number] })
-    embedding?: number[];
+    @Prop({ default: 0 })
+    chunkCount?: number;
+
+    @Prop({ default: 'default' })
+    embeddingModel?: string;
 
     @Prop({ required: true })
     aiOutput!: string;
 
     @Prop({ type: Object, default: {} })
     metadata!: Record<string, any>;
+
+    @Prop({ required: true, index: true })
+    expiresAt!: Date;
 }
 
 export const AiCacheSchema = SchemaFactory.createForClass(AiCache);
 AiCacheSchema.index({ userId: 1, textHash: 1, promptHash: 1 }, { unique: true });
 AiCacheSchema.index({ userId: 1, promptHash: 1, createdAt: -1 });
+AiCacheSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });

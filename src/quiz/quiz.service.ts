@@ -49,6 +49,16 @@ export class QuizService {
 
     private cleanAiJsonResponse(raw: string): any {
         try {
+            // Check if the AI returned the "not enough information" string literal
+            if (
+                raw.includes('materials do not contain enough information') ||
+                raw.includes('materials do not provide enough context')
+            ) {
+                throw new BadRequestException(
+                    'The AI could not find enough relevant information in your notes to generate a high-quality challenge. Try adding more detail to your notes!',
+                );
+            }
+
             const cleaned = raw.replace(/```json|```/g, '').trim();
 
             // Try to find the first '{' for an object
@@ -68,6 +78,7 @@ export class QuizService {
 
             throw new Error('No JSON structure found');
         } catch (e) {
+            if (e instanceof BadRequestException) throw e;
             console.error('AI JSON Parse Error:', e, raw);
             throw new InternalServerErrorException(
                 'AI returned malformed data. Please try again.',
@@ -140,7 +151,10 @@ export class QuizService {
             fullPrompt,
             userId,
             undefined,
-            { format: 'json' },
+            { 
+                format: 'json',
+                systemPrompt: 'You are an academic examiner. Generate a balanced, high-quality test based on the provided materials. If the materials are insufficient, do your best to generate relevant academic questions based on the topics discussed. Return results in the requested JSON format.'
+            },
         );
         const testData = this.cleanAiJsonResponse(aiResponse);
 
@@ -286,22 +300,38 @@ export class QuizService {
         const prompt = `Based on this note: "${latestNote.content.substring(0, 1000)}", generate ONE high-quality multiple choice question. 
         Return ONLY JSON: {"id": "daily", "question": "", "options": ["", "", "", ""], "answer": "", "explanation": ""}`;
 
-        const aiResponse = await this.aiService.getResponse(
-            prompt,
-            userId,
-            undefined,
-            { format: 'json' },
-        );
-        const question = this.cleanAiJsonResponse(aiResponse);
+        try {
+            const aiResponse = await this.aiService.getResponse(
+                prompt,
+                userId,
+                undefined,
+                { 
+                    format: 'json',
+                    systemPrompt: 'You are an academic tutor. Generate a high-quality assessment question based on the provided note. Even if the note is short, try to identify the main topic and create a meaningful question. Return ONLY JSON.'
+                },
+            );
+            const question = this.cleanAiJsonResponse(aiResponse);
 
-        return {
-            success: true,
-            data: {
-                ...question,
-                points: 20,
-                subject: latestNote.title,
-            },
-        };
+            return {
+                success: true,
+                data: {
+                    ...question,
+                    points: 20,
+                    subject: latestNote.title,
+                },
+            };
+        } catch (error) {
+            console.warn('[QuizService] Daily Challenge AI generation failed, falling back to generic question:', error.message);
+            const generic = await this.getGenericPracticeQuestions(1);
+            return {
+                success: true,
+                data: {
+                    ...(generic.data[0] as any),
+                    points: 10, // Fewer points for generic challenge
+                    subject: 'Practice',
+                },
+            };
+        }
     }
 
     async getGenericPracticeQuestions(count: number = 5) {
@@ -311,20 +341,59 @@ export class QuizService {
                 question: 'Which pattern comes next: 2, 4, 8, 16, ...?',
                 options: ['20', '24', '32', '64'],
                 answer: '32',
-                explanation: 'Multiplied by 2.',
+                explanation: 'Each number is twice the previous number. Next is 16 * 2 = 32.',
                 questionType: 'multiple_choice',
             },
             {
                 id: 'gen-2',
-                question: 'What is active recall?',
+                question: 'What is "Active Recall"?',
                 options: [
-                    'Reading',
-                    'Testing yourself',
-                    'Highlighting',
-                    'Listening',
+                    'Re-reading your notes repeatedly',
+                    'Highlighting important information',
+                    'Retrieving information from memory without looking',
+                    'Listening to recorded lectures while sleeping',
                 ],
-                answer: 'Testing yourself',
-                explanation: 'Retrieval practice is key.',
+                answer: 'Retrieving information from memory without looking',
+                explanation: 'Active recall forces your brain to retrieve information, strengthening neural connections.',
+                questionType: 'multiple_choice',
+            },
+            {
+                id: 'gen-3',
+                question: 'Which study technique involves breaking up your study time into short sessions with breaks?',
+                options: [
+                    'Cramming',
+                    'The Pomodoro Technique',
+                    'Speed Reading',
+                    'Passive Listening',
+                ],
+                answer: 'The Pomodoro Technique',
+                explanation: 'The Pomodoro Technique typically involves 25 minutes of focused study followed by a 5-minute break.',
+                questionType: 'multiple_choice',
+            },
+            {
+                id: 'gen-4',
+                question: 'What does the "Spaced Repetition" technique help to counteract?',
+                options: [
+                    'Lack of motivation',
+                    'The Forgetting Curve',
+                    'Poor handwriting',
+                    'Eye strain',
+                ],
+                answer: 'The Forgetting Curve',
+                explanation: 'Spaced repetition helps review information at increasing intervals to move it into long-term memory.',
+                questionType: 'multiple_choice',
+            },
+            {
+                id: 'gen-5',
+                question: 'In the context of learning, what is "Leitner System" primarily used for?',
+                options: [
+                    'Note taking',
+                    'Flashcard organization',
+                    'Group discussion',
+                    'Essay writing',
+                ],
+                answer: 'Flashcard organization',
+                explanation: 'The Leitner system is a method for efficiently using flashcards by prioritizing harder cards.',
                 questionType: 'multiple_choice',
             },
         ];
