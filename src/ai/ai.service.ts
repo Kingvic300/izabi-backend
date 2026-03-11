@@ -17,6 +17,7 @@ import { VectorService } from './vector.service.js';
 import { AiCacheService } from './ai-cache.service.js';
 import { generateHash } from '../common/utils/text-cache.utils.js';
 import { chunkTextBySize } from '../common/utils/text-chunk.utils.js';
+import { MAX_UPLOAD_SIZE_BYTES } from '../common/constants/upload.constants';
 import {
     IZABI_APP_CONTEXT,
     IZABI_APP_CONTEXT_VERSION,
@@ -1234,9 +1235,15 @@ ${message}`
         try {
             const response = await axios.get(url, {
                 responseType: 'arraybuffer',
-                timeout: 120000,
+                timeout: 60000,
+                maxContentLength: MAX_UPLOAD_SIZE_BYTES,
+                maxBodyLength: MAX_UPLOAD_SIZE_BYTES,
+                validateStatus: (status) => status >= 200 && status < 300,
             });
             const buffer = Buffer.from(response.data);
+            if (buffer.length > MAX_UPLOAD_SIZE_BYTES) {
+                throw new PayloadTooLargeException('File exceeds allowed size.');
+            }
             const mime = response.headers['content-type'] || 'application/pdf';
 
             const mockFile: any = {

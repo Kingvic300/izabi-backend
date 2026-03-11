@@ -2,14 +2,17 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import {
+    MAX_JSON_BODY_MB,
+} from './common/constants/upload.constants';
 import * as express from 'express';
 
 async function bootstrap() {
     const app = await NestFactory.create(AppModule, { bodyParser: false });
 
-    // Increase payload size limit using express directly
-    app.use(express.json({ limit: '500mb' }));
-    app.use(express.urlencoded({ limit: '500mb', extended: true }));
+    // Safer payload limits (override with env)
+    app.use(express.json({ limit: `${MAX_JSON_BODY_MB}mb` }));
+    app.use(express.urlencoded({ limit: `${MAX_JSON_BODY_MB}mb`, extended: true }));
 
     const defaultCorsOrigins = [
         'https://izabi.halixe.com',

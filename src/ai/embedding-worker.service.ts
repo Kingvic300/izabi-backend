@@ -40,7 +40,11 @@ export class EmbeddingWorkerService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(
             `Starting embedding workers (interval=${this.pollIntervalMs}ms, concurrency=${this.concurrency})`,
         );
-        this.timer = setInterval(() => void this.drainQueue(), this.pollIntervalMs);
+        this.timer = setInterval(() => {
+            this.drainQueue().catch((err) =>
+                this.logger.error('[EmbeddingWorker] drainQueue failed', err),
+            );
+        }, this.pollIntervalMs);
     }
 
     onModuleDestroy() {

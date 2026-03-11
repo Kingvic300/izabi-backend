@@ -15,9 +15,11 @@ const OCR_TEXT_MIN_CHARS = 10;
 const OCR_RENDER_SCALE = 2.0;
 const ENABLE_HTML_PARSING = process.env.ENABLE_HTML_PARSING === 'true';
 const LARGE_TEXT_STREAM_MB = 25;
+const OCR_MAX_QUEUE = Number(process.env.OCR_MAX_QUEUE || 20);
 
 let ocrWorkerPromise: Promise<any> | null = null;
 let ocrQueue: Promise<unknown> = Promise.resolve();
+let ocrPending = 0;
 
 const getOcrWorker = async () => {
     if (!ocrWorkerPromise) {
@@ -39,7 +41,11 @@ const resetOcrWorker = async () => {
 };
 
 const runOcr = async (image: Buffer | Uint8Array): Promise<string> => {
+    if (ocrPending >= OCR_MAX_QUEUE) {
+        throw new BadRequestException('OCR queue is busy. Please try again.');
+    }
     const worker = await getOcrWorker();
+    ocrPending += 1;
     const task = ocrQueue.then(() => worker.recognize(image));
     ocrQueue = task.then(
         () => undefined,
@@ -51,6 +57,8 @@ const runOcr = async (image: Buffer | Uint8Array): Promise<string> => {
     } catch (error) {
         await resetOcrWorker();
         throw error;
+    } finally {
+        ocrPending = Math.max(ocrPending - 1, 0);
     }
 };
 
@@ -358,42 +366,49 @@ const tryExtractTextFromPdf = async (
     let pagesWithText = 0;
     let failedPages = 0;
 
-    const pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
-    const pageResults = await mapWithConcurrency(
-        pageNumbers,
-        PDF_PAGE_CONCURRENCY,
-        async (pageNumber) => {
-            try {
-                const page = await doc.getPage(pageNumber);
-                const content = await page.getTextContent();
-                const strings = content.items
-                    .map((item: any) =>
-                        typeof item?.str === 'string' ? item.str : '',
-                    )
-                    .filter(Boolean);
+    try {
+        const pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
+        const pageResults = await mapWithConcurrency(
+            pageNumbers,
+            PDF_PAGE_CONCURRENCY,
+            async (pageNumber) => {
+                try {
+                    const page = await doc.getPage(pageNumber);
+                    const content = await page.getTextContent();
+                    page.cleanup?.();
+                    const strings = content.items
+                        .map((item: any) =>
+                            typeof item?.str === 'string' ? item.str : '',
+                        )
+                        .filter(Boolean);
 
-                if (strings.length > 0) {
-                    return {
-                        text: strings.join(' '),
-                        hasText: true,
-                        failed: false,
-                    };
+                    if (strings.length > 0) {
+                        return {
+                            text: strings.join(' '),
+                            hasText: true,
+                            failed: false,
+                        };
+                    }
+
+                    return { text: '', hasText: false, failed: false };
+                } catch {
+                    return { text: '', hasText: false, failed: true };
                 }
+            },
+        );
 
-                return { text: '', hasText: false, failed: false };
-            } catch {
-                return { text: '', hasText: false, failed: true };
+        for (const result of pageResults) {
+            if (result.failed) {
+                failedPages += 1;
             }
-        },
-    );
-
-    for (const result of pageResults) {
-        if (result.failed) {
-            failedPages += 1;
+            if (result.hasText) {
+                pagesWithText += 1;
+                fullText += result.text + '\n';
+            }
         }
-        if (result.hasText) {
-            pagesWithText += 1;
-            fullText += result.text + '\n';
+    } finally {
+        if (typeof doc.destroy === 'function') {
+            await doc.destroy();
         }
     }
 
@@ -424,25 +439,31 @@ const extractTextFromPdfOcr = async (
     let fullText = '';
     let pagesOcred = 0;
 
-    for (let i = 1; i <= numPages; i += 1) {
-        try {
-            const page = await doc.getPage(i);
-            const viewport = page.getViewport({ scale: OCR_RENDER_SCALE });
-            const canvas = canvasModule.createCanvas(
-                viewport.width,
-                viewport.height,
-            );
-            const context = canvas.getContext('2d');
-            await page.render({ canvasContext: context, viewport }).promise;
-            const pngBuffer = canvas.toBuffer('image/png');
-            const text = await runOcr(pngBuffer);
-            if (text.trim().length > 0) {
-                fullText += text.trim() + '\n';
-                pagesOcred += 1;
+    try {
+        for (let i = 1; i <= numPages; i += 1) {
+            try {
+                const page = await doc.getPage(i);
+                const viewport = page.getViewport({ scale: OCR_RENDER_SCALE });
+                const canvas = canvasModule.createCanvas(
+                    viewport.width,
+                    viewport.height,
+                );
+                const context = canvas.getContext('2d');
+                await page.render({ canvasContext: context, viewport }).promise;
+                const pngBuffer = canvas.toBuffer('image/png');
+                const text = await runOcr(pngBuffer);
+                if (text.trim().length > 0) {
+                    fullText += text.trim() + '\n';
+                    pagesOcred += 1;
+                }
+                page.cleanup?.();
+            } catch {
+                // Skip failed OCR pages.
             }
-            page.cleanup();
-        } catch {
-            // Skip failed OCR pages.
+        }
+    } finally {
+        if (typeof doc.destroy === 'function') {
+            await doc.destroy();
         }
     }
 
@@ -707,16 +728,23 @@ export const extractTextPreview = async (
                 disableFontFace: true,
             }).promise;
 
-            let text = '';
-            // Limit to first 3 pages
-            const numPages = Math.min(doc.numPages, 3);
+            try {
+                let text = '';
+                // Limit to first 3 pages
+                const numPages = Math.min(doc.numPages, 3);
 
-            for (let i = 1; i <= numPages; i++) {
-                const page = await doc.getPage(i);
-                const content = await page.getTextContent();
-                text += content.items.map((item: any) => item.str).join(' ');
+                for (let i = 1; i <= numPages; i++) {
+                    const page = await doc.getPage(i);
+                    const content = await page.getTextContent();
+                    page.cleanup?.();
+                    text += content.items.map((item: any) => item.str).join(' ');
+                }
+                return text.substring(0, maxChars);
+            } finally {
+                if (typeof doc.destroy === 'function') {
+                    await doc.destroy();
+                }
             }
-            return text.substring(0, maxChars);
         }
 
         if (fileType === 'text') {

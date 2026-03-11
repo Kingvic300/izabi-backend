@@ -410,8 +410,15 @@ export class StudyController {
             const axios = (await import('axios')).default;
             const response = await axios.get(fileUrl, {
                 responseType: 'arraybuffer',
+                timeout: 60000,
+                maxContentLength: MAX_UPLOAD_SIZE_BYTES,
+                maxBodyLength: MAX_UPLOAD_SIZE_BYTES,
+                validateStatus: (status) => status >= 200 && status < 300,
             });
             const buffer = Buffer.from(response.data);
+            if (buffer.length > MAX_UPLOAD_SIZE_BYTES) {
+                throw new BadRequestException('File exceeds allowed size.');
+            }
 
             const file: Express.Multer.File = {
                 buffer,

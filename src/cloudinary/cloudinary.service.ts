@@ -34,7 +34,16 @@ export class CloudinaryService {
                 },
             );
 
-            streamifier.createReadStream(file.buffer).pipe(uploadStream);
+            const readStream = streamifier.createReadStream(file.buffer);
+            readStream.on('error', (err) => {
+                uploadStream.destroy(err as Error);
+                reject(err);
+            });
+            uploadStream.on('error', (err) => {
+                readStream.destroy(err as Error);
+                reject(err);
+            });
+            readStream.pipe(uploadStream);
         });
     }
 

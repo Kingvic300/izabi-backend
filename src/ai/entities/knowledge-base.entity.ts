@@ -22,3 +22,9 @@ export class KnowledgeBase {
 }
 
 export const KnowledgeBaseSchema = SchemaFactory.createForClass(KnowledgeBase);
+KnowledgeBaseSchema.index({ userId: 1, documentId: 1, createdAt: -1 });
+const KB_TTL_DAYS = Number(process.env.KB_TTL_DAYS || 30);
+KnowledgeBaseSchema.index(
+    { createdAt: 1 },
+    { expireAfterSeconds: KB_TTL_DAYS * 24 * 60 * 60 },
+);

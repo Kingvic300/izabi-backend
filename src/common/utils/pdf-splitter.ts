@@ -52,6 +52,37 @@ const THRESHOLDS = {
     IDEAL_CHUNK_PAGES: 25,
     MIN_CHUNK_PAGES: 10,
 };
+const PAGE_EXTRACTION_CONCURRENCY = Number(
+    process.env.PDF_PAGE_CONCURRENCY || 3,
+);
+const MAX_PAGE_RANGE = Number(process.env.PDF_MAX_PAGE_RANGE || 50);
+
+const mapWithConcurrency = async <T, R>(
+    items: T[],
+    limit: number,
+    mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> => {
+    const results = new Array<R>(items.length);
+    let nextIndex = 0;
+
+    const workers = Array.from(
+        { length: Math.min(limit, items.length) },
+        async () => {
+            while (true) {
+                const currentIndex = nextIndex;
+                nextIndex += 1;
+                if (currentIndex >= items.length) break;
+                results[currentIndex] = await mapper(
+                    items[currentIndex],
+                    currentIndex,
+                );
+            }
+        },
+    );
+
+    await Promise.all(workers);
+    return results;
+};
 
 /**
  * OPTIMIZED: Analyzes PDF with parallel processing and early exit
@@ -76,65 +107,70 @@ export const analyzePDFForSplitting = async (
             disableFontFace: true,
         }).promise;
 
-        const pageCount = doc.numPages;
+        try {
+            const pageCount = doc.numPages;
 
-        // OPTIMIZATION 1: Sample fewer pages for large documents (3 instead of 5)
-        const samplePages = Math.min(3, pageCount);
+            // OPTIMIZATION 1: Sample fewer pages for large documents (3 instead of 5)
+            const samplePages = Math.min(3, pageCount);
 
-        // OPTIMIZATION 2: Parallel page extraction
-        const pagePromises = [];
-        for (let i = 1; i <= samplePages; i++) {
-            pagePromises.push(
-                doc.getPage(i).then(async (page: any) => {
+            const pages = Array.from({ length: samplePages }, (_, i) => i + 1);
+            const pageTexts = await mapWithConcurrency(
+                pages,
+                PAGE_EXTRACTION_CONCURRENCY,
+                async (pageNumber) => {
+                    const page = await doc.getPage(pageNumber);
                     const content = await page.getTextContent();
+                    page.cleanup?.();
                     return content.items.map((item: any) => item.str).join(' ');
-                }),
+                },
             );
-        }
+            const sampleText = pageTexts.join(' ');
 
-        const pageTexts = await Promise.all(pagePromises);
-        const sampleText = pageTexts.join(' ');
+            const avgCharsPerPage = sampleText.length / samplePages;
+            const estimatedChars = Math.round(avgCharsPerPage * pageCount);
 
-        const avgCharsPerPage = sampleText.length / samplePages;
-        const estimatedChars = Math.round(avgCharsPerPage * pageCount);
+            // Decision logic
+            const needsSplitting =
+                pageCount > THRESHOLDS.MAX_PAGES ||
+                estimatedChars > THRESHOLDS.MAX_CHARS ||
+                fileSizeMB > THRESHOLDS.MAX_SIZE_MB;
 
-        // Decision logic
-        const needsSplitting =
-            pageCount > THRESHOLDS.MAX_PAGES ||
-            estimatedChars > THRESHOLDS.MAX_CHARS ||
-            fileSizeMB > THRESHOLDS.MAX_SIZE_MB;
+            if (!needsSplitting) {
+                return {
+                    needsSplitting: false,
+                    pageCount,
+                    estimatedChars,
+                    fileSizeMB,
+                };
+            }
 
-        if (!needsSplitting) {
+            // OPTIMIZATION 3: Lightweight metadata extraction (skip TOC parsing for speed)
+            const metadata: PDFMetadata = {
+                pageCount,
+                fileSizeMB,
+                hasTableOfContents: false,
+                detectedChapters: [],
+                textDensity: avgCharsPerPage,
+            };
+
+            const suggestions = generateSplitSuggestions(
+                metadata,
+                file.originalname,
+            );
+
             return {
-                needsSplitting: false,
+                needsSplitting: true,
                 pageCount,
                 estimatedChars,
                 fileSizeMB,
+                reason: getDynamicReason(pageCount, estimatedChars, fileSizeMB),
+                suggestions,
             };
+        } finally {
+            if (typeof doc.destroy === 'function') {
+                await doc.destroy();
+            }
         }
-
-        // OPTIMIZATION 3: Lightweight metadata extraction (skip TOC parsing for speed)
-        const metadata: PDFMetadata = {
-            pageCount,
-            fileSizeMB,
-            hasTableOfContents: false,
-            detectedChapters: [],
-            textDensity: avgCharsPerPage,
-        };
-
-        const suggestions = generateSplitSuggestions(
-            metadata,
-            file.originalname,
-        );
-
-        return {
-            needsSplitting: true,
-            pageCount,
-            estimatedChars,
-            fileSizeMB,
-            reason: getDynamicReason(pageCount, estimatedChars, fileSizeMB),
-            suggestions,
-        };
     } catch (error) {
         console.error('[PDF Analysis] Error:', error);
         throw new BadRequestException('Unable to analyze PDF structure.');
@@ -230,28 +266,41 @@ export const extractTextFromPageRange = async (
                 `Invalid page range: ${pageStart}-${pageEnd}`,
             );
         }
+        if (pageEnd - pageStart + 1 > MAX_PAGE_RANGE) {
+            throw new BadRequestException(
+                `Page range too large (max ${MAX_PAGE_RANGE} pages).`,
+            );
+        }
 
-        // OPTIMIZATION: Parallel page extraction
-        const pagePromises = [];
-        for (let i = pageStart; i <= pageEnd; i++) {
-            pagePromises.push(
-                doc.getPage(i).then(async (page: any) => {
+        try {
+            const pages = Array.from(
+                { length: pageEnd - pageStart + 1 },
+                (_, i) => pageStart + i,
+            );
+            const pageTexts = await mapWithConcurrency(
+                pages,
+                PAGE_EXTRACTION_CONCURRENCY,
+                async (pageNumber) => {
+                    const page = await doc.getPage(pageNumber);
                     const content = await page.getTextContent();
+                    page.cleanup?.();
                     return (
                         content.items.map((item: any) => item.str).join(' ') +
                         '\n'
                     );
-                }),
+                },
             );
+            const fullText = pageTexts.join('');
+
+            return fullText
+                .replace(/\r\n/g, '\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+        } finally {
+            if (typeof doc.destroy === 'function') {
+                await doc.destroy();
+            }
         }
-
-        const pageTexts = await Promise.all(pagePromises);
-        const fullText = pageTexts.join('');
-
-        return fullText
-            .replace(/\r\n/g, '\n')
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
     } catch (error) {
         console.error('[Page Range Extraction] Error:', error);
         throw new BadRequestException(

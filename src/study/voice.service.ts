@@ -9,6 +9,40 @@ import * as streamifier from 'streamifier';
 export class VoiceService {
     constructor(private readonly cloudinaryService: CloudinaryService) {}
 
+    private readonly maxAudioBytes = Number(
+        process.env.MAX_VOICE_AUDIO_BYTES || 5 * 1024 * 1024,
+    );
+    private readonly maxConcurrency = Number(
+        process.env.VOICE_FETCH_CONCURRENCY || 3,
+    );
+
+    private async mapWithConcurrency<T, R>(
+        items: T[],
+        limit: number,
+        mapper: (item: T, index: number) => Promise<R>,
+    ): Promise<R[]> {
+        const results = new Array<R>(items.length);
+        let nextIndex = 0;
+
+        const workers = Array.from(
+            { length: Math.min(limit, items.length) },
+            async () => {
+                while (true) {
+                    const currentIndex = nextIndex;
+                    nextIndex += 1;
+                    if (currentIndex >= items.length) break;
+                    results[currentIndex] = await mapper(
+                        items[currentIndex],
+                        currentIndex,
+                    );
+                }
+            },
+        );
+
+        await Promise.all(workers);
+        return results;
+    }
+
     async generateVoice(
         text: string,
         lang: string = 'en',
@@ -33,20 +67,34 @@ export class VoiceService {
             });
 
             // 3. Fetch all audio buffers in parallel for speed
-            const audioBufferResults = await Promise.all(
-                audioUrls.map(async (part) => {
+            const audioBufferResults = await this.mapWithConcurrency(
+                audioUrls,
+                this.maxConcurrency,
+                async (part) => {
                     const response = await axios.get(part.url, {
                         responseType: 'arraybuffer',
+                        timeout: 15000,
                         headers: {
                             'User-Agent':
                                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                         },
+                        validateStatus: (status) =>
+                            status >= 200 && status < 300,
                     });
                     return Buffer.from(response.data);
-                }),
+                },
             );
 
             // 4. Concatenate all buffers into one single audio file
+            const totalBytes = audioBufferResults.reduce(
+                (sum, buf) => sum + buf.length,
+                0,
+            );
+            if (totalBytes > this.maxAudioBytes) {
+                throw new InternalServerErrorException(
+                    'Generated audio is too large.',
+                );
+            }
             const finalAudioBuffer = Buffer.concat(audioBufferResults);
 
             // 5. Stream the buffer to Cloudinary

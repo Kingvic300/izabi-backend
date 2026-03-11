@@ -50,3 +50,8 @@ export class EmbeddingJob {
 export const EmbeddingJobSchema = SchemaFactory.createForClass(EmbeddingJob);
 EmbeddingJobSchema.index({ status: 1, availableAt: 1, priority: -1 });
 EmbeddingJobSchema.index({ dedupeKey: 1 }, { unique: true });
+const EMBEDDING_JOB_TTL_DAYS = Number(process.env.EMBEDDING_JOB_TTL_DAYS || 7);
+EmbeddingJobSchema.index(
+    { finishedAt: 1 },
+    { expireAfterSeconds: EMBEDDING_JOB_TTL_DAYS * 24 * 60 * 60 },
+);

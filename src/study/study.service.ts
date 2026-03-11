@@ -16,6 +16,9 @@ import { STUDY_PROMPTS } from './study.prompts.js';
 
 @Injectable()
 export class StudyService {
+    private readonly maxCombinedChars = Number(
+        process.env.MAX_COMBINED_TEXT_CHARS || 500000,
+    );
     constructor(
         @InjectModel(StudyHistory.name)
         private studyModel: Model<StudyHistoryDocument>,
@@ -181,7 +184,13 @@ export class StudyService {
         
         for (const file of files) {
             const text = await extractTextFromFile(file);
-            combinedText += `\n\n--- Source: ${file.originalname} ---\n\n` + text;
+            const nextChunk =
+                `\n\n--- Source: ${file.originalname} ---\n\n` + text;
+            if (combinedText.length + nextChunk.length > this.maxCombinedChars) {
+                combinedText += '\n\n[Content truncated to protect system memory]';
+                break;
+            }
+            combinedText += nextChunk;
         }
 
         const docHash = this.aiService.generateHash(combinedText);

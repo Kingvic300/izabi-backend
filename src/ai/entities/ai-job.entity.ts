@@ -57,3 +57,8 @@ export class AiJob {
 
 export const AiJobSchema = SchemaFactory.createForClass(AiJob);
 AiJobSchema.index({ status: 1, availableAt: 1, priority: -1, createdAt: 1 });
+const AI_JOB_TTL_DAYS = Number(process.env.AI_JOB_TTL_DAYS || 7);
+AiJobSchema.index(
+    { finishedAt: 1 },
+    { expireAfterSeconds: AI_JOB_TTL_DAYS * 24 * 60 * 60 },
+);
