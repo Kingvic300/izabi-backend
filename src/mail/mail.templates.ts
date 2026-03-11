@@ -798,6 +798,13 @@ export const getAuditDigestTemplate = ({
                 }`.trim(),
             );
             const resourceId = sanitize(event?.request?.resourceId || '');
+            const statusCode = sanitize(
+                String(event?.metadata?.statusCode ?? 'N/A'),
+            );
+            const ipAddress = sanitize(event?.user?.ipAddress || 'N/A');
+            const errorMessage = sanitize(
+                event?.metadata?.error || event?.errorMessage || '',
+            );
             return `
             <tr>
               <td data-label="Timestamp (UTC)">${time}</td>
@@ -805,16 +812,15 @@ export const getAuditDigestTemplate = ({
                   severity,
               )}; color: #0b1220;">${severity}</span></td>
               <td data-label="User">${user}<div class="muted">${email}</div></td>
-              <td data-label="Action">${action}${
-                  route || resourceId
-                      ? `<div class="muted">${route}${
-                            resourceId ? ` • ${resourceId}` : ''
-                        }</div>`
-                      : ''
+              <td data-label="Endpoint">${route || 'N/A'}${
+                  resourceId ? `<div class="muted">${resourceId}</div>` : ''
               }</td>
               <td data-label="Outcome"><span class="pill" style="background: ${outcomeColor(
                   outcome,
               )}; color: #0b1220;">${outcome}</span></td>
+              <td data-label="Status">${statusCode}</td>
+              <td data-label="IP">${ipAddress}</td>
+              <td data-label="What Happened">${errorMessage || action}</td>
             </tr>
         `;
         })
@@ -903,8 +909,11 @@ export const getAuditDigestTemplate = ({
               <th>Timestamp (UTC)</th>
               <th>Severity</th>
               <th>User</th>
-              <th>Action</th>
+              <th>Endpoint</th>
               <th>Outcome</th>
+              <th>Status</th>
+              <th>IP</th>
+              <th>What Happened</th>
             </tr>
           </thead>
           <tbody>

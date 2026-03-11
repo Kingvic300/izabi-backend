@@ -41,9 +41,12 @@ export class CronController {
     async triggerDailySummary(
         @Headers('x-cron-secret') headerSecret: string,
         @Query('secret') querySecret: string,
+        @Query('force') force?: string,
     ) {
         this.validateSecret(headerSecret || querySecret);
-        return await this.auditScheduler.handleDailySummary(true);
+        const isForce =
+            force === '1' || force === 'true' || force === 'yes';
+        return await this.auditScheduler.handleDailySummary(true, isForce);
     }
 
     private validateSecret(secret: string | undefined): void {
