@@ -40,8 +40,8 @@ async function bootstrap() {
             if (url.protocol !== 'https:') return false;
 
             // Allow Vercel preview deployments for the "inkluziv" project.
-            return /^[a-z0-9-]+-inkluziv\.vercel\.app$/i.test(url.hostname);
-        } catch {
+        return url.hostname.endsWith('.vercel.app');
+        } catch {       
             return false;
         }
     };
