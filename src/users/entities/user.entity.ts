@@ -150,3 +150,9 @@ export class User {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+UserSchema.index({ points: -1, _id: 1 });
+UserSchema.index({ createdAt: -1 });
+UserSchema.index({ lastStudyDate: -1 });
+UserSchema.index({ lastActivityAt: -1 });
+UserSchema.index({ lastStreakDate: -1 });
+UserSchema.index({ role: 1 });

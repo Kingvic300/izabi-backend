@@ -13,6 +13,7 @@ import { NotesModule } from '../notes/notes.module';
 import { QuizModule } from '../quiz/quiz.module';
 
 import { UsersScheduler } from './users.scheduler';
+import { LeaderboardModule } from '../leaderboard/leaderboard.module';
 
 @Module({
     imports: [
@@ -23,6 +24,7 @@ import { UsersScheduler } from './users.scheduler';
         forwardRef(() => AuthModule),
         forwardRef(() => NotesModule),
         forwardRef(() => QuizModule),
+        LeaderboardModule,
         JwtModule.register({}),
     ],
     controllers: [UsersController, AdminController],

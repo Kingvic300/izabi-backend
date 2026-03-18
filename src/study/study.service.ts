@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import axios from 'axios';
+import { Readable } from 'stream';
 import {
     StudyHistory,
     StudyHistoryDocument,
@@ -13,6 +15,13 @@ import { AiService } from '../ai/ai.service.js';
 import { CloudinaryService } from '../cloudinary/cloudinary.service.js';
 import { UsersService } from '../users/users.service.js';
 import { STUDY_PROMPTS } from './study.prompts.js';
+import { MAX_UPLOAD_SIZE_BYTES } from '../common/constants/upload.constants.js';
+import {
+    STUDY_QUEUE_NAME,
+    StudyQueueJobPayload,
+} from './queue/study-queue.types.js';
+import { StudyQueueService } from './queue/study-queue.service.js';
+import { StudyJobService } from './study-job.service.js';
 
 @Injectable()
 export class StudyService {
@@ -25,6 +34,8 @@ export class StudyService {
         private readonly aiService: AiService,
         private readonly cloudinaryService: CloudinaryService,
         private readonly usersService: UsersService,
+        private readonly studyQueueService: StudyQueueService,
+        private readonly studyJobService: StudyJobService,
     ) {}
 
     async findAll(userId: string): Promise<StudyHistoryDocument[]> {
@@ -172,22 +183,166 @@ export class StudyService {
             throw new BadRequestException(limit.reason);
         }
 
+        if (this.studyQueueService.isEnabled()) {
+            return this.enqueueDirectUpload(userId, files, data);
+        }
+
+        return this.startMultiDirectUploadInProcess(userId, files, data);
+    }
+
+    private async enqueueDirectUpload(
+        userId: string,
+        files: Express.Multer.File[],
+        data: {
+            type: 'summary' | 'flashcards' | 'quiz' | 'study-guide';
+            options?: any;
+            lang?: string;
+        },
+    ) {
+        const language = await this.resolveLanguage(userId, data.lang);
+        const config = this.getMaterialConfig(data.type, data.options);
+        const fileNames = files.map((file) => file.originalname);
+        const fileFingerprints = files
+            .map((file) => `${file.originalname}:${file.size}`)
+            .join('|');
+        const dedupeKey = this.aiService.generateHash(
+            `${userId}:${data.type}:${JSON.stringify(data.options || {})}:${fileFingerprints}`,
+        );
+
+        const existingJob = await this.studyJobService.findByDedupeKey(
+            dedupeKey,
+        );
+        if (existingJob) {
+            return {
+                success: true,
+                jobId: existingJob.historyId || existingJob._id.toString(),
+                status: existingJob.status,
+                deduped: true,
+            };
+        }
+
+        const history = await this.create(userId, {
+            fileName: fileNames.join(', '),
+            type: data.type,
+            status: 'PROCESSING',
+            language,
+            metadata: {
+                protocol: 'REDIS_QUEUE_v1',
+                timestamp: new Date().toISOString(),
+                fileNames,
+                progress: 5,
+            },
+        });
+
+        if (data.type === 'quiz' && config.quizOptions) {
+            (history.metadata as any).quizOptions = config.quizOptions;
+            (history.metadata as any).quizOptionsHash =
+                this.aiService.generateHash(
+                    JSON.stringify(config.quizOptions),
+                );
+        }
+
+        const jobRecord = await this.studyJobService.createJob({
+            userId,
+            type: data.type,
+            fileNames,
+            options: data.options,
+            dedupeKey,
+            historyId: history._id.toString(),
+        });
+
+        try {
+            const uploadResult = await this.cloudinaryService.uploadFile(
+                files[0],
+            );
+            history.fileUrl = uploadResult.secure_url;
+
+            if (files.length > 1) {
+                const allUrls = [uploadResult.secure_url];
+                for (let i = 1; i < files.length; i++) {
+                    const res = await this.cloudinaryService.uploadFile(
+                        files[i],
+                    );
+                    allUrls.push(res.secure_url);
+                }
+                (history.metadata as any).fileUrls = allUrls;
+            }
+
+            (history.metadata as any).progress = 15;
+            await (history as any).save();
+            await this.studyJobService.markUploaded(
+                jobRecord._id.toString(),
+                (history.metadata as any).fileUrls?.length > 0
+                    ? (history.metadata as any).fileUrls
+                    : [history.fileUrl].filter(Boolean),
+            );
+
+            const payload: StudyQueueJobPayload = {
+                jobId: jobRecord._id.toString(),
+                historyId: history._id.toString(),
+                userId,
+                type: data.type,
+                fileUrls:
+                    (history.metadata as any).fileUrls?.length > 0
+                        ? (history.metadata as any).fileUrls
+                        : [history.fileUrl].filter(Boolean),
+                fileNames,
+                language,
+                options: data.options,
+            };
+
+            await this.studyQueueService.enqueue(payload);
+            await this.studyJobService.markQueued(
+                jobRecord._id.toString(),
+                payload.fileUrls,
+            );
+        } catch (error: any) {
+            history.status = 'FAILED';
+            (history.metadata as any) = {
+                ...(history.metadata || {}),
+                error: error?.message || 'Upload/queue failed',
+            };
+            await (history as any).save();
+            await this.studyJobService.markQueueFailed(
+                jobRecord._id.toString(),
+                error?.message || 'Upload/queue failed',
+            );
+            throw error;
+        }
+
+        return {
+            success: true,
+            jobId: history._id,
+            status: 'PROCESSING',
+        };
+    }
+
+    private async startMultiDirectUploadInProcess(
+        userId: string,
+        files: Express.Multer.File[],
+        data: {
+            type: 'summary' | 'flashcards' | 'quiz' | 'study-guide';
+            options?: any;
+            lang?: string;
+        },
+    ) {
         const language = await this.resolveLanguage(userId, data.lang);
         const config = this.getMaterialConfig(data.type, data.options);
 
         // 1. Content Fingerprinting (Combined)
         const { extractTextFromFile } =
             await import('../common/utils/text-extractor.js');
-        
+
         let combinedText = '';
-        const fileNames = files.map(f => f.originalname);
-        
+        const fileNames = files.map((f) => f.originalname);
+
         for (const file of files) {
             const text = await extractTextFromFile(file);
             const nextChunk =
                 `\n\n--- Source: ${file.originalname} ---\n\n` + text;
             if (combinedText.length + nextChunk.length > this.maxCombinedChars) {
-                combinedText += '\n\n[Content truncated to protect system memory]';
+                combinedText +=
+                    '\n\n[Content truncated to protect system memory]';
                 break;
             }
             combinedText += nextChunk;
@@ -248,7 +403,7 @@ export class StudyService {
                 fileNames,
             },
         });
-        
+
         if (data.type === 'quiz' && config.quizOptions) {
             (history.metadata as any).quizOptions = config.quizOptions;
             (history.metadata as any).quizOptionsHash =
@@ -257,7 +412,12 @@ export class StudyService {
                 );
         }
 
-        this.processBackgroundMultiDirect(history, files, combinedText, config).catch((err) => {
+        this.processBackgroundMultiDirect(
+            history,
+            files,
+            combinedText,
+            config,
+        ).catch((err) => {
             console.error(
                 `[StudyService] Multi-direct background failure for ${history._id}:`,
                 err,
@@ -269,6 +429,207 @@ export class StudyService {
             jobId: history._id,
             status: 'PROCESSING',
         };
+    }
+
+    async processQueuedDirectUpload(payload: StudyQueueJobPayload) {
+        const history = await this.studyModel
+            .findById(payload.historyId)
+            .exec();
+
+        if (!history) {
+            throw new BadRequestException('Queued job history not found.');
+        }
+
+        if (history.status === 'COMPLETED') return;
+
+        try {
+            const jobRecord = await this.studyJobService.findById(
+                payload.jobId,
+            );
+            if (!jobRecord) {
+                throw new BadRequestException('Queue job record not found.');
+            }
+
+            const leaseMs = Number(
+                process.env.STUDY_JOB_LEASE_MS || 10 * 60 * 1000,
+            );
+            const acquired = await this.studyJobService.acquireLease(
+                jobRecord._id.toString(),
+                leaseMs,
+                jobRecord.attempts + 1,
+            );
+            if (!acquired) return;
+
+            const language = payload.language || history.language || 'en';
+            const config = this.getMaterialConfig(payload.type, payload.options);
+
+            (history.metadata as any) = {
+                ...(history.metadata || {}),
+                worker: 'redis',
+                queue: STUDY_QUEUE_NAME,
+                progress: 25,
+            };
+            await (history as any).save();
+
+            const { extractTextFromFile } =
+                await import('../common/utils/text-extractor.js');
+
+            let combinedText = '';
+            const fileUrls =
+                payload.fileUrls?.length
+                    ? payload.fileUrls
+                    : history.fileUrl
+                      ? [history.fileUrl]
+                      : [];
+            const fileNames = payload.fileNames || [];
+
+            if (fileUrls.length === 0) {
+                throw new BadRequestException('No file URLs provided for job.');
+            }
+
+            for (let i = 0; i < fileUrls.length; i++) {
+                const url = fileUrls[i];
+                const originalname =
+                    fileNames[i] || url.split('/').pop() || 'document';
+                const file = await this.fetchFileFromUrl(url, originalname);
+                const text = await extractTextFromFile(file);
+                const nextChunk =
+                    `\n\n--- Source: ${originalname} ---\n\n` + text;
+                if (
+                    combinedText.length + nextChunk.length >
+                    this.maxCombinedChars
+                ) {
+                    combinedText +=
+                        '\n\n[Content truncated to protect system memory]';
+                    break;
+                }
+                combinedText += nextChunk;
+            }
+
+            const docHash = this.aiService.generateHash(combinedText);
+            history.docHash = docHash;
+            history.language = language;
+            history.fileName = fileNames.join(', ');
+            if (!history.fileUrl && fileUrls.length > 0) {
+                history.fileUrl = fileUrls[0];
+            }
+
+            const cacheQuery: any = this.buildLanguageCacheQuery(
+                {
+                    docHash,
+                    type: payload.type,
+                    status: 'COMPLETED',
+                },
+                language,
+            );
+            if (payload.type === 'quiz' && config.quizOptions) {
+                cacheQuery['metadata.quizOptionsHash'] =
+                    this.aiService.generateHash(
+                        JSON.stringify(config.quizOptions),
+                    );
+            }
+
+            const existing = await this.studyModel.findOne(cacheQuery).exec();
+            if (existing) {
+                history.summary = existing.summary;
+                history.questions = existing.questions;
+                history.flashcards = existing.flashcards;
+                history.status = 'COMPLETED';
+                (history.metadata as any).reusedFrom = existing._id;
+                (history.metadata as any).progress = 100;
+                await (history as any).save();
+                await this.usersService.addPoints(
+                    history.userId,
+                    config.points,
+                    config.actionType,
+                );
+                return;
+            }
+
+            const responseText = await this.aiService.processExtractedText(
+                config.prompt,
+                combinedText,
+                history.userId,
+                undefined,
+                { language, format: config.format },
+            );
+
+            (history.metadata as any).progress = 85;
+            await (history as any).save();
+
+            await this.finalizeMaterial(
+                history,
+                responseText,
+                payload.type,
+                config,
+            );
+            await this.studyJobService.updateStatus(
+                jobRecord._id.toString(),
+                'COMPLETED',
+                { lastError: undefined },
+            );
+            await this.studyJobService.releaseLease(jobRecord._id.toString());
+        } catch (error: any) {
+            if (payload.jobId) {
+                const jobRecord = await this.studyJobService.findById(
+                    payload.jobId,
+                );
+                const maxAttempts = Number(
+                    process.env.STUDY_JOB_MAX_ATTEMPTS || 3,
+                );
+                const nextStatus =
+                    jobRecord && jobRecord.attempts >= maxAttempts
+                        ? 'FAILED'
+                        : 'RETRY';
+                await this.studyJobService.updateStatus(payload.jobId, nextStatus, {
+                    lastError: error?.message || 'Unknown error',
+                });
+                await this.studyJobService.releaseLease(payload.jobId);
+                if (nextStatus === 'FAILED') {
+                    await this.studyQueueService.enqueueDeadLetter(
+                        payload,
+                        error?.message || 'Unknown error',
+                    );
+                    history.status = 'FAILED';
+                    (history.metadata as any) = {
+                        ...(history.metadata || {}),
+                        error: error?.message || 'Unknown error',
+                    };
+                    await (history as any).save();
+                }
+            }
+            throw error;
+        }
+    }
+
+    private async fetchFileFromUrl(url: string, originalname: string) {
+        const response = await axios.get(url, {
+            responseType: 'arraybuffer',
+            timeout: 60000,
+            maxContentLength: MAX_UPLOAD_SIZE_BYTES,
+            maxBodyLength: MAX_UPLOAD_SIZE_BYTES,
+            validateStatus: (status) => status >= 200 && status < 300,
+        });
+        const buffer = Buffer.from(response.data);
+        if (buffer.length > MAX_UPLOAD_SIZE_BYTES) {
+            throw new BadRequestException('File exceeds allowed size.');
+        }
+        const mime = response.headers['content-type'] || 'application/pdf';
+
+        const file: Express.Multer.File = {
+            buffer,
+            mimetype: mime,
+            originalname,
+            size: buffer.length,
+            fieldname: 'file',
+            encoding: '7bit',
+            destination: '',
+            filename: originalname,
+            path: '',
+            stream: Readable.from(buffer),
+        };
+
+        return file;
     }
 
     private async processBackgroundMultiDirect(
@@ -484,14 +845,18 @@ export class StudyService {
         config: any,
     ) {
         let parsedData: any = responseText;
-        if (type === 'flashcards' || type === 'quiz') {
+        if (type === 'flashcards' || type === 'quiz' || type === 'summary') {
             try {
-                const isNotFound = responseText.toLowerCase().includes('not contain enough information') || 
-                                 responseText.toLowerCase().includes('information is missing');
-                
-                if (isNotFound && !responseText.includes('[')) {
+                const isNotFound =
+                    responseText
+                        .toLowerCase()
+                        .includes('not contain enough information') ||
+                    responseText.toLowerCase().includes('information is missing');
+
+                if (isNotFound && !responseText.includes('[') && !responseText.includes('{')) {
                     history.status = 'FAILED';
-                    (history.metadata as any).error = "The uploaded materials do not contain enough information to complete this task.";
+                    (history.metadata as any).error =
+                        'The uploaded materials do not contain enough information to complete this task.';
                     await (history as any).save();
                     return;
                 }
@@ -557,8 +922,15 @@ export class StudyService {
                 questions = questions.slice(0, quizOptions.count);
             }
             history.questions = questions;
+        } else if (type === 'summary') {
+            (history as any).summary = JSON.stringify(parsedData);
+            (history.metadata as any) = {
+                ...(history.metadata || {}),
+                summaryFormat: 'json',
+            };
+        } else {
+            (history as any).summary = parsedData;
         }
-        else (history as any).summary = parsedData;
 
         if (!history.language) {
             history.language = 'en';

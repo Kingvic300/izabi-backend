@@ -8,6 +8,28 @@ import { Model, isValidObjectId } from 'mongoose';
 import { User, UserDocument } from './entities/user.entity';
 import { CreateUserDto, UpdateProfileDto } from './dto/user.dto';
 import * as bcrypt from 'bcrypt';
+import { LeaderboardGateway } from '../leaderboard/leaderboard.gateway';
+import {
+    buildLeaderboard,
+    buildLeaderboardShare,
+    buildPublicLeaderboard,
+    snapshotPreviousRanks,
+} from './helpers/leaderboard.helpers';
+import {
+    getDisplayName,
+    getLiveStreakValue,
+    getMidnightUTC,
+    getNextIncrementInMs,
+    toDate,
+    updateStreak,
+} from './helpers/streak.helpers';
+import {
+    addPointsForUser,
+    addStreakFreezesForUser,
+    buyStreakFreezeForUser,
+    checkInUser,
+    checkUsageLimitForUser,
+} from './helpers/gamification.helpers';
 
 @Injectable()
 export class UsersService {
@@ -16,6 +38,7 @@ export class UsersService {
 
     constructor(
         @InjectModel(User.name) private userModel: Model<UserDocument>,
+        private readonly leaderboardGateway: LeaderboardGateway,
     ) {}
 
     // --- Core User Management ---
@@ -24,7 +47,6 @@ export class UsersService {
         const seed = encodeURIComponent((email || 'scholar').toLowerCase());
         return `https://api.dicebear.com/7.x/notionists/svg?seed=${seed}`;
     }
-
     async create(createUserDto: CreateUserDto): Promise<UserDocument> {
         const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
         const normalizedEmail = createUserDto.email.toLowerCase();
@@ -38,15 +60,12 @@ export class UsersService {
         });
         return user.save();
     }
-
     async findByEmail(email: string): Promise<UserDocument | null> {
         return this.userModel.findOne({ email }).select('+password').exec();
     }
-
     async findByGoogleId(googleId: string): Promise<UserDocument | null> {
         return this.userModel.findOne({ googleId }).exec();
     }
-
     async findOrCreateFromGoogle(profile: {
         googleId: string;
         email: string;
@@ -175,32 +194,16 @@ export class UsersService {
     }
 
     // --- Professional Streak Engine ---
-
     /**
      * Safely convert a value to a Date object.
      * Handles strings, Date objects, and null/undefined.
      */
     private toDate(value: any): Date | null {
-        if (!value) return null;
-        if (value instanceof Date) return value;
-        if (typeof value === 'string' || typeof value === 'number') {
-            const date = new Date(value);
-            return isNaN(date.getTime()) ? null : date;
-        }
-        return null;
+        return toDate(value);
     }
 
     private getMidnightUTC(date: Date): number {
-        return Date.UTC(
-            date.getUTCFullYear(),
-            date.getUTCMonth(),
-            date.getUTCDate(),
-        );
-    }
-
-    private getElapsedMs(from: Date | null, to: Date): number {
-        if (!from) return Number.POSITIVE_INFINITY;
-        return to.getTime() - from.getTime();
+        return getMidnightUTC(date);
     }
 
     private getLiveStreakValue(
@@ -208,286 +211,78 @@ export class UsersService {
         lastActivityAt: Date | null,
         now: Date = new Date(),
     ): number {
-        const elapsed = this.getElapsedMs(lastActivityAt, now);
-        return elapsed <= this.STREAK_GRACE_WINDOW_MS ? streak || 0 : 0;
+        return getLiveStreakValue(
+            streak,
+            lastActivityAt,
+            now,
+            this.STREAK_GRACE_WINDOW_MS,
+        );
     }
 
     private getDisplayName(user: UserDocument): string {
-        const first = (user.firstName || '').trim();
-        const last = (user.lastName || '').trim();
-        if (first && last) return `${first} ${last[0].toUpperCase()}.`;
-        if (first) return first;
-        if (last) return last;
-        const email = (user.email || '').trim();
-        if (email) return email.split('@')[0];
-        return 'Scholar';
-    }
-
-    private computeRollingStreakUpdate(params: {
-        streak: number;
-        lastActivityAt: Date | null;
-        lastStreakIncrementAt: Date | null;
-        now: Date;
-    }) {
-        const { streak, lastActivityAt, lastStreakIncrementAt, now } = params;
-        const hasStreak = (streak || 0) > 0;
-
-        if (!hasStreak) {
-            return {
-                streak: 1,
-                lastActivityAt: now,
-                lastStreakIncrementAt: now,
-                didIncrement: true,
-                didReset: false,
-                nextIncrementInMs: this.STREAK_INCREMENT_WINDOW_MS,
-            };
-        }
-
-        if (!lastActivityAt || !lastStreakIncrementAt) {
-            return {
-                streak,
-                lastActivityAt: now,
-                lastStreakIncrementAt: now,
-                didIncrement: false,
-                didReset: false,
-                nextIncrementInMs: this.STREAK_INCREMENT_WINDOW_MS,
-            };
-        }
-
-        const timeSinceLastActivity = now.getTime() - lastActivityAt.getTime();
-        const timeSinceLastIncrement =
-            now.getTime() - lastStreakIncrementAt.getTime();
-
-        if (timeSinceLastActivity >= this.STREAK_GRACE_WINDOW_MS) {
-            return {
-                streak: 1,
-                lastActivityAt: now,
-                lastStreakIncrementAt: now,
-                didIncrement: false,
-                didReset: true,
-                nextIncrementInMs: this.STREAK_INCREMENT_WINDOW_MS,
-            };
-        }
-
-        if (
-            timeSinceLastIncrement >= this.STREAK_INCREMENT_WINDOW_MS &&
-            timeSinceLastActivity < this.STREAK_INCREMENT_WINDOW_MS
-        ) {
-            return {
-                streak: streak + 1,
-                lastActivityAt: now,
-                lastStreakIncrementAt: now,
-                didIncrement: true,
-                didReset: false,
-                nextIncrementInMs: this.STREAK_INCREMENT_WINDOW_MS,
-            };
-        }
-
-        return {
-            streak,
-            lastActivityAt: now,
-            lastStreakIncrementAt,
-            didIncrement: false,
-            didReset: false,
-            nextIncrementInMs: Math.max(
-                0,
-                this.STREAK_INCREMENT_WINDOW_MS - timeSinceLastIncrement,
-            ),
-        };
+        return getDisplayName(user);
     }
 
     private getNextIncrementInMs(
         lastStreakIncrementAt: Date | null,
         now: Date,
     ): number | null {
-        if (!lastStreakIncrementAt) return null;
-        const elapsed = now.getTime() - lastStreakIncrementAt.getTime();
-        return Math.max(0, this.STREAK_INCREMENT_WINDOW_MS - elapsed);
+        return getNextIncrementInMs(
+            lastStreakIncrementAt,
+            now,
+            this.STREAK_INCREMENT_WINDOW_MS,
+        );
     }
 
     private updateStreak(user: UserDocument, activityType: string) {
-        const now = new Date();
-
-        // 1. Process Global Streak (rolling 24-hour window)
-        const previousStreak = user.streak || 0;
-        const globalUpdate = this.computeRollingStreakUpdate({
-            streak: previousStreak,
-            lastActivityAt:
-                user.lastActivityAt ||
-                user.lastStudyDate ||
-                user.lastStreakDate ||
-                null,
-            lastStreakIncrementAt:
-                user.lastStreakIncrementAt || user.lastStreakDate || null,
-            now,
-        });
-
-        user.streak = globalUpdate.streak;
-        user.lastActivityAt = globalUpdate.lastActivityAt;
-        user.lastStreakIncrementAt = globalUpdate.lastStreakIncrementAt;
-        // Legacy field (kept for backward compatibility)
-        user.lastStreakDate = globalUpdate.lastStreakIncrementAt;
-
-        if (globalUpdate.didIncrement || previousStreak === 0) {
-            user.longestStreak = Math.max(
-                user.longestStreak || 0,
-                user.streak,
-            );
-        }
-
-        // Milestone: Level up every 7 days + 500 XP reward
-        if (
-            globalUpdate.didIncrement &&
-            user.streak > 0 &&
-            user.streak % 7 === 0 &&
-            user.streak !== previousStreak
-        ) {
-            user.level = (user.level || 1) + 1;
-            user.points += 500;
-        }
-
-        // 2. Process Activity Streaks (rolling 24-hour window)
-        if (!user.activityStreaks) user.activityStreaks = {};
-        const activity = user.activityStreaks[activityType] || {
-            current: 0,
-            longest: 0,
-            lastDate: null,
-            lastActivityAt: null,
-            lastStreakIncrementAt: null,
-        };
-
-        const activityUpdate = this.computeRollingStreakUpdate({
-            streak: activity.current || 0,
-            lastActivityAt: activity.lastActivityAt || activity.lastDate || null,
-            lastStreakIncrementAt:
-                activity.lastStreakIncrementAt || activity.lastDate || null,
-            now,
-        });
-
-        activity.current = activityUpdate.streak;
-        activity.longest = Math.max(
-            activity.longest || 0,
-            activity.current,
+        return updateStreak(
+            user,
+            activityType,
+            this.STREAK_INCREMENT_WINDOW_MS,
+            this.STREAK_GRACE_WINDOW_MS,
         );
-        activity.lastActivityAt = activityUpdate.lastActivityAt;
-        activity.lastStreakIncrementAt = activityUpdate.lastStreakIncrementAt;
-        activity.lastDate = activityUpdate.lastActivityAt;
-
-        user.activityStreaks[activityType] = activity;
-        user.markModified('activityStreaks');
     }
 
     // --- Core Gamification Methods ---
-
     async addPoints(
         userId: string,
         pointsToAdd: number,
         actionType: 'summaries' | 'quizzes' | 'guides' | 'flashcards',
     ): Promise<UserDocument> {
-        const user = await this.userModel.findById(userId);
-        if (!user) throw new NotFoundException('User not found');
-
-        const now = new Date();
-        const todayUTC = this.getMidnightUTC(now);
-        const lastUTC = user.lastStudyDate
-            ? this.getMidnightUTC(user.lastStudyDate)
-            : null;
-
-        if (lastUTC === null || todayUTC > lastUTC) {
-            user.dailyPoints = 0;
-            user.dailyDocs = 0;
-            user.dailyMessages = 0;
-        }
-
-        this.updateStreak(user, actionType);
-
-        user.points += pointsToAdd;
-        user.dailyPoints += pointsToAdd;
-        user.dailyDocs += 1; // Tracks successful ingestion
-        user.lastStudyDate = now;
-
-        if (!user.pet)
-            user.pet = {
-                name: 'Izabi Pet',
-                type: 'owl',
-                level: 1,
-                mood: 'happy',
-            };
-        user.pet.level = Math.floor(user.streak / 5) + 1;
-        user.pet.mood = user.streak > 1 ? 'happy' : 'neutral';
-        user.markModified('pet');
-
-        if (!user.studyStats)
-            user.studyStats = {
-                summaries: 0,
-                quizzes: 0,
-                guides: 0,
-                flashcards: 0,
-            };
-        user.studyStats[actionType] = (user.studyStats[actionType] || 0) + 1;
-        user.markModified('studyStats');
-
-        user.totalStudyMinutes = (user.totalStudyMinutes || 0) + 5;
-        return user.save();
+        return addPointsForUser({
+            userModel: this.userModel,
+            userId,
+            pointsToAdd,
+            actionType,
+            updateStreak: this.updateStreak.bind(this),
+            getMidnightUTC: this.getMidnightUTC.bind(this),
+            broadcast: (reason) => this.leaderboardGateway.broadcastUpdate(reason),
+        });
     }
-
     async checkIn(userId: string): Promise<UserDocument> {
-        const user = await this.userModel.findById(userId);
-        if (!user) throw new NotFoundException('User not found');
-
-        const now = new Date();
-        const todayUTC = this.getMidnightUTC(now);
-        const lastUTC = user.lastStudyDate
-            ? this.getMidnightUTC(user.lastStudyDate)
-            : null;
-
-        if (lastUTC === null || todayUTC > lastUTC) {
-            user.dailyPoints = 0;
-            user.dailyDocs = 0;
-            user.dailyMessages = 0;
-        }
-
-        this.updateStreak(user, 'login');
-        user.lastStudyDate = now;
-
-        if (!user.pet)
-            user.pet = {
-                name: 'Izabi Pet',
-                type: 'owl',
-                level: 1,
-                mood: 'happy',
-            };
-        user.pet.level = Math.floor(user.streak / 5) + 1;
-        user.pet.mood = user.streak > 1 ? 'happy' : 'neutral';
-        user.markModified('pet');
-
-        return user.save();
+        return checkInUser({
+            userModel: this.userModel,
+            userId,
+            updateStreak: this.updateStreak.bind(this),
+            getMidnightUTC: this.getMidnightUTC.bind(this),
+            broadcast: (reason) => this.leaderboardGateway.broadcastUpdate(reason),
+        });
     }
-
     async buyStreakFreeze(userId: string): Promise<UserDocument> {
-        const user = await this.userModel.findById(userId);
-        if (!user) throw new NotFoundException('User not found');
-
-        const COST = 50;
-        if (user.points < COST)
-            throw new BadRequestException(`Need ${COST} XP to buy a freeze.`);
-        if ((user.streakFreezes || 0) >= 3)
-            throw new BadRequestException('Inventory full (Max 3).');
-
-        user.points -= COST;
-        user.streakFreezes = (user.streakFreezes || 0) + 1;
-        return user.save();
+        return buyStreakFreezeForUser({
+            userModel: this.userModel,
+            userId,
+        });
     }
-
     async addStreakFreezes(
         userId: string,
         count: number,
     ): Promise<UserDocument> {
-        const user = await this.userModel.findById(userId);
-        if (!user) throw new NotFoundException('User not found');
-
-        user.streakFreezes = (user.streakFreezes || 0) + count;
-        return user.save();
+        return addStreakFreezesForUser({
+            userModel: this.userModel,
+            userId,
+            count,
+        });
     }
 
     async updateSubscription(
@@ -507,80 +302,16 @@ export class UsersService {
 
         return user.save();
     }
-
     async checkUsageLimit(
         userId: string,
         type: 'dailyDocs' | 'dailyMessages',
     ): Promise<{ allowed: boolean; reason?: string }> {
-        const user = await this.userModel.findById(userId);
-        if (!user) throw new NotFoundException('User not found');
-        const subscriptionsEnabled =
-            process.env.SUBSCRIPTIONS_ENABLED === 'true';
-        if (!subscriptionsEnabled) {
-            return { allowed: true };
-        }
-
-        const now = new Date();
-        const todayUTC = this.getMidnightUTC(now);
-        const lastUTC = user.lastStudyDate
-            ? this.getMidnightUTC(user.lastStudyDate)
-            : null;
-
-        // Reset daily counters if it's a new day
-        if (lastUTC === null || todayUTC > lastUTC) {
-            user.dailyDocs = 0;
-            user.dailyMessages = 0;
-            user.lastStudyDate = now;
-            await user.save();
-        }
-
-        // Check if user has a paid subscription (Pro or Premium)
-        if (
-            user.subscriptionStatus === 'pro' ||
-            user.subscriptionStatus === 'premium'
-        ) {
-            // Check if subscription expired
-            if (
-                user.subscriptionExpiry &&
-                new Date() > user.subscriptionExpiry
-            ) {
-                user.subscriptionStatus = 'free';
-                await user.save();
-                // Fall through to free tier limits below
-            } else {
-                // Pro and Premium have higher limits
-                const isPremium = user.subscriptionStatus === 'premium';
-                const PAID_LIMITS = {
-                    dailyDocs: isPremium ? 30 : 15, // Premium: 30, Pro: 15
-                    dailyMessages: isPremium ? 45 : 30, // Premium: 45, Pro: 30
-                };
-
-                const currentUsage = user[type] || 0;
-                if (currentUsage >= PAID_LIMITS[type]) {
-                    return {
-                        allowed: false,
-                        reason: `Daily ${type === 'dailyDocs' ? 'upload' : 'AI chat'} limit reached for ${isPremium ? 'Premium' : 'Pro'}. Upgrade to unlock more!`,
-                    };
-                }
-                return { allowed: true };
-            }
-        }
-
-        // Freemium Limits
-        const LIMITS = {
-            dailyDocs: 5, // 5 PDF uploads/processing per day
-            dailyMessages: 20, // 20 AI chat messages per day
-        };
-
-        const currentUsage = user[type] || 0;
-        if (currentUsage >= LIMITS[type]) {
-            return {
-                allowed: false,
-                reason: `Daily ${type === 'dailyDocs' ? 'upload' : 'AI chat'} limit reached. Upgrade to Pro or Premium for more access!`,
-            };
-        }
-
-        return { allowed: true };
+        return checkUsageLimitForUser({
+            userModel: this.userModel,
+            userId,
+            type,
+            getMidnightUTC: this.getMidnightUTC.bind(this),
+        });
     }
 
     async getStreakNumber(userId: string) {
@@ -629,238 +360,27 @@ export class UsersService {
     }
 
     async getLeaderboard(userId?: string) {
-        const filter = { role: { $nin: ['ADMIN', 'admin'] } };
-        const projection =
-            'firstName lastName email points dailyPoints streak level institution studyStats profilePicturePath previousXpRank previousStreakRank';
-
-        const topStudents = await this.userModel
-            .find(filter)
-            .sort({ points: -1, _id: 1 })
-            .limit(100)
-            .select(projection)
-            .exec();
-        const streakCandidates = await this.userModel
-            .find(filter)
-            .select(`${projection} lastActivityAt lastStreakDate role`)
-            .exec();
-
-        const sortedByLiveStreak = streakCandidates
-            .map((user) => {
-                const obj = user.toObject();
-                return {
-                    ...obj,
-                    streak: this.getLiveStreakValue(
-                        obj.streak || 0,
-                        obj.lastActivityAt || obj.lastStreakDate || null,
-                    ),
-                };
-            })
-            .sort((a: any, b: any) => {
-                if (b.streak !== a.streak) return b.streak - a.streak;
-                return String(a._id).localeCompare(String(b._id));
-            });
-
-        const topStreaks = sortedByLiveStreak.slice(0, 100);
-
-        const topStudentsWithChange = topStudents.map((user, index) => {
-            const currentRank = index + 1;
-            const prev = user.previousXpRank || currentRank;
-            return {
-                ...user.toObject(),
-                rank: currentRank,
-                rankChange: prev - currentRank, // Positive = Up, Negative = Down
-            };
+        return buildLeaderboard({
+            userModel: this.userModel,
+            userId,
+            getLiveStreakValue: this.getLiveStreakValue.bind(this),
+            streakGraceWindowMs: this.STREAK_GRACE_WINDOW_MS,
         });
-
-        const topStreaksWithChange = topStreaks.map((user: any, index) => {
-            const currentRank = index + 1;
-            const prev = user.previousStreakRank || currentRank;
-            return {
-                ...user,
-                rank: currentRank,
-                rankChange: prev - currentRank,
-            };
-        });
-
-        let userRank = {
-            xp: 'Not Ranked',
-            streak: 'Not Ranked',
-            xpChange: 0,
-            streakChange: 0,
-        };
-        const cleanUserId = userId?.trim();
-
-        if (cleanUserId && /^[0-9a-fA-F]{24}$/.test(cleanUserId)) {
-            const user = await this.userModel.findById(cleanUserId).exec();
-            if (user) {
-                if (['ADMIN', 'admin'].includes(user.role)) {
-                    userRank = {
-                        xp: 'Admin',
-                        streak: 'Admin',
-                        xpChange: 0,
-                        streakChange: 0,
-                    };
-                } else {
-                    const userPoints = user.points ?? 0;
-                    const userStreak = this.getLiveStreakValue(
-                        user.streak ?? 0,
-                        user.lastActivityAt || user.lastStreakDate || null,
-                    );
-
-                    const xpRank =
-                        (await this.userModel.countDocuments({
-                            ...filter,
-                            $or: [
-                                { points: { $gt: userPoints } },
-                                { points: userPoints, _id: { $lt: user._id } },
-                            ],
-                        })) + 1;
-
-                    const streakRank =
-                        sortedByLiveStreak.findIndex(
-                            (u: any) => String(u._id) === String(user._id),
-                        ) + 1;
-
-                    userRank = {
-                        xp: xpRank.toString(),
-                        streak: streakRank.toString(),
-                        xpChange: (user.previousXpRank || xpRank) - xpRank,
-                        streakChange:
-                            (user.previousStreakRank || streakRank) -
-                            streakRank,
-                    };
-                }
-            }
-        }
-        return {
-            topStudents: topStudentsWithChange,
-            topStreaks: topStreaksWithChange,
-            userRank,
-        };
     }
 
     async getPublicLeaderboard(userId?: string) {
         const leaderboard = await this.getLeaderboard(userId);
-        const stripEmail = (user: any) => {
-            if (!user) return user;
-            const { email, ...rest } = user;
-            return rest;
-        };
-        return {
-            topStudents: (leaderboard.topStudents || []).map(stripEmail),
-            topStreaks: (leaderboard.topStreaks || []).map(stripEmail),
-            userRank: leaderboard.userRank,
-        };
+        return buildPublicLeaderboard(leaderboard);
     }
-
     async getLeaderboardShare(userId: string, type: string = 'xp') {
-        const cleanUserId = (userId || '').trim();
-        if (!cleanUserId) {
-            throw new BadRequestException('userId is required');
-        }
-        if (!/^[0-9a-fA-F]{24}$/.test(cleanUserId)) {
-            throw new BadRequestException('Invalid userId format');
-        }
-
-        const normalizedType = (type || 'xp').toLowerCase();
-        if (normalizedType !== 'xp' && normalizedType !== 'streak') {
-            throw new BadRequestException('type must be "xp" or "streak"');
-        }
-
-        const user = await this.userModel
-            .findById(cleanUserId)
-            .select(
-                'firstName lastName email points streak lastActivityAt lastStreakDate profilePicturePath role',
-            )
-            .exec();
-        if (!user) throw new NotFoundException('User not found');
-        if (['ADMIN', 'admin'].includes(user.role)) {
-            return {
-                disabled: true,
-                reason: 'Admins are not ranked',
-                type: normalizedType,
-                generatedAt: new Date().toISOString(),
-            };
-        }
-
-        const points = user.points ?? 0;
-        const liveStreak = this.getLiveStreakValue(
-            user.streak ?? 0,
-            user.lastActivityAt || user.lastStreakDate || null,
-        );
-        const filter = { role: { $nin: ['ADMIN', 'admin'] } };
-
-        let rank: number | null = null;
-        if (normalizedType === 'xp') {
-            rank =
-                (await this.userModel.countDocuments({
-                    ...filter,
-                    $or: [
-                        { points: { $gt: points } },
-                        { points: points, _id: { $lt: user._id } },
-                    ],
-                })) + 1;
-        } else {
-            const streakCandidates = await this.userModel
-                .find(filter)
-                .select('_id streak lastActivityAt lastStreakDate')
-                .exec();
-            const sortedByLiveStreak = streakCandidates
-                .map((candidate) => {
-                    const obj = candidate.toObject();
-                    return {
-                        _id: obj._id,
-                        streak: this.getLiveStreakValue(
-                            obj.streak || 0,
-                            obj.lastActivityAt || obj.lastStreakDate || null,
-                        ),
-                    };
-                })
-                .sort((a: any, b: any) => {
-                    if (b.streak !== a.streak) return b.streak - a.streak;
-                    return String(a._id).localeCompare(String(b._id));
-                });
-            const index = sortedByLiveStreak.findIndex(
-                (candidate: any) =>
-                    String(candidate._id) === String(user._id),
-            );
-            rank = index >= 0 ? index + 1 : null;
-        }
-
-        const displayName = this.getDisplayName(user);
-        const score =
-            normalizedType === 'xp' ? points : Math.max(liveStreak, 0);
-        const scoreLabel =
-            normalizedType === 'xp' ? `${score} XP` : `${score} day streak`;
-        const rankLabel = rank ? `#${rank}` : 'Not Ranked';
-        // Public base URL for share links (can be overridden via env).
-        const baseUrl = (process.env.PUBLIC_APP_URL ||
-            process.env.APP_PUBLIC_URL ||
-            'https://izabi.halixe.com'
-        )
-            .trim()
-            .replace(/\/+$/, '');
-        const shareUrl = `${baseUrl}/leaderboard?userId=${user._id.toString()}`;
-        const shareBody =
-            rank && rank > 0
-                ? `I’m ranked ${rankLabel} on Izabi 🚀 Can you beat me?`
-                : `I’m on the Izabi leaderboard 🚀 Can you beat me?`;
-        const shareText = `${shareBody}\nCheck it out: ${shareUrl}`;
-
-        return {
-            userId: String(user._id),
-            type: normalizedType,
-            displayName,
-            profilePicturePath: user.profilePicturePath,
-            rank,
-            rankLabel,
-            score,
-            scoreLabel,
-            shareUrl,
-            shareBody,
-            shareText,
-            generatedAt: new Date().toISOString(),
-        };
+        return buildLeaderboardShare({
+            userModel: this.userModel,
+            userId,
+            type,
+            getLiveStreakValue: this.getLiveStreakValue.bind(this),
+            getDisplayName: this.getDisplayName.bind(this),
+            streakGraceWindowMs: this.STREAK_GRACE_WINDOW_MS,
+        });
     }
 
     /**
@@ -868,39 +388,9 @@ export class UsersService {
      * WHY: To provide the "rank change" visuals in the Hall of Fame.
      */
     async updatePreviousRanks() {
-        const filter = { role: { $nin: ['ADMIN', 'admin'] } };
-
-        // 1. Snapshot XP Ranks
-        const sortedByXP = await this.userModel
-            .find(filter)
-            .sort({ points: -1, _id: 1 })
-            .select('_id')
-            .exec();
-        const xpUpdates = sortedByXP.map((user, index) => ({
-            updateOne: {
-                filter: { _id: user._id },
-                update: { previousXpRank: index + 1 },
-            },
-        }));
-
-        // 2. Snapshot Streak Ranks
-        const sortedByStreak = await this.userModel
-            .find(filter)
-            .sort({ streak: -1, _id: 1 })
-            .select('_id')
-            .exec();
-        const streakUpdates = sortedByStreak.map((user, index) => ({
-            updateOne: {
-                filter: { _id: user._id },
-                update: { previousStreakRank: index + 1 },
-            },
-        }));
-
-        if (xpUpdates.length > 0) await this.userModel.bulkWrite(xpUpdates);
-        if (streakUpdates.length > 0)
-            await this.userModel.bulkWrite(streakUpdates);
-
-        return { totalProcessed: sortedByXP.length };
+        const result = await snapshotPreviousRanks(this.userModel);
+        this.leaderboardGateway.broadcastUpdate('rank-snapshot');
+        return result;
     }
 
     // --- Admin & Utils ---
@@ -928,6 +418,63 @@ export class UsersService {
 
     async findAll(): Promise<UserDocument[]> {
         return this.userModel.find().select('-password -refreshToken').exec();
+    }
+
+    async findAllForAdmin(): Promise<any[]> {
+        return this.userModel
+            .find()
+            .select(
+                'email firstName lastName role isVerified streak lastActivityAt lastStreakDate points createdAt lastStudyDate',
+            )
+            .lean()
+            .exec();
+    }
+
+    async countAllUsers(): Promise<number> {
+        return this.userModel.countDocuments({}).exec();
+    }
+
+    async countActiveSince(since: Date): Promise<number> {
+        return this.userModel
+            .countDocuments({ lastStudyDate: { $gt: since } })
+            .exec();
+    }
+
+    async countNewSince(since: Date): Promise<number> {
+        return this.userModel
+            .countDocuments({ createdAt: { $gt: since } })
+            .exec();
+    }
+
+    async getDailyCounts(
+        field: 'createdAt' | 'lastStudyDate',
+        days: number,
+    ): Promise<Record<string, number>> {
+        const start = new Date();
+        start.setDate(start.getDate() - (days - 1));
+        start.setHours(0, 0, 0, 0);
+
+        const results = await this.userModel.aggregate([
+            { $match: { [field]: { $gte: start } } },
+            {
+                $group: {
+                    _id: {
+                        $dateToString: {
+                            format: '%Y-%m-%d',
+                            date: `$${field}`,
+                        },
+                    },
+                    count: { $sum: 1 },
+                },
+            },
+            { $sort: { _id: 1 } },
+        ]);
+
+        const map: Record<string, number> = {};
+        results.forEach((row: any) => {
+            map[row._id] = row.count;
+        });
+        return map;
     }
 
     async delete(userId: string): Promise<void> {

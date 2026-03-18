@@ -51,27 +51,26 @@ export class AdminController {
     @Get('stats')
     async getStats() {
         try {
-            const users = await this.usersService.findAll();
             const notes = await this.notesService.countAll();
 
-
             // Active users (logged in within last 24 hours)
-            const oneDayAgo = new Date();
-            oneDayAgo.setHours(oneDayAgo.getHours() - 24);
-            const activeUsers = users.filter(
-                (u: any) =>
-                    u.lastStudyDate && new Date(u.lastStudyDate) > oneDayAgo,
+            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const thirtyDaysAgo = new Date(
+                Date.now() - 30 * 24 * 60 * 60 * 1000,
             );
 
-            // New users in last 30 days
-            const thirtyDaysAgo = new Date();
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-            const newUsers = users.filter(
-                (u: any) => new Date(u.createdAt) > thirtyDaysAgo,
-            );
+            const [totalUsers, activeNow, newUsers, userGrowthMap, activityMap] =
+                await Promise.all([
+                    this.usersService.countAllUsers(),
+                    this.usersService.countActiveSince(oneDayAgo),
+                    this.usersService.countNewSince(thirtyDaysAgo),
+                    this.usersService.getDailyCounts('createdAt', 7),
+                    this.usersService.getDailyCounts('lastStudyDate', 7),
+                ]);
+
             const growth =
-                users.length > 0
-                    ? ((newUsers.length / users.length) * 100).toFixed(1)
+                totalUsers > 0
+                    ? Number(((newUsers / totalUsers) * 100).toFixed(1))
                     : 0;
 
             // User growth chart (7 days)
@@ -79,25 +78,14 @@ export class AdminController {
             for (let i = 6; i >= 0; i--) {
                 const date = new Date();
                 date.setDate(date.getDate() - i);
-                const dayStart = new Date(
-                    date.getFullYear(),
-                    date.getMonth(),
-                    date.getDate(),
-                );
-                const dayEnd = new Date(dayStart);
-                dayEnd.setDate(dayEnd.getDate() + 1);
-
-                const count = users.filter((u: any) => {
-                    const created = new Date(u.createdAt);
-                    return created >= dayStart && created < dayEnd;
-                }).length;
-
+                date.setHours(0, 0, 0, 0);
+                const key = date.toISOString().slice(0, 10);
                 userGrowthChart.push({
-                    date: dayStart.toLocaleDateString('en-US', {
+                    date: date.toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
                     }),
-                    users: count,
+                    users: userGrowthMap[key] || 0,
                 });
             }
 
@@ -106,26 +94,14 @@ export class AdminController {
             for (let i = 6; i >= 0; i--) {
                 const date = new Date();
                 date.setDate(date.getDate() - i);
-                const dayStart = new Date(
-                    date.getFullYear(),
-                    date.getMonth(),
-                    date.getDate(),
-                );
-                const dayEnd = new Date(dayStart);
-                dayEnd.setDate(dayEnd.getDate() + 1);
-
-                const active = users.filter((u: any) => {
-                    if (!u.lastStudyDate) return false;
-                    const lastStudy = new Date(u.lastStudyDate);
-                    return lastStudy >= dayStart && lastStudy < dayEnd;
-                }).length;
-
+                date.setHours(0, 0, 0, 0);
+                const key = date.toISOString().slice(0, 10);
                 activityChart.push({
-                    date: dayStart.toLocaleDateString('en-US', {
+                    date: date.toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
                     }),
-                    active,
+                    active: activityMap[key] || 0,
                 });
             }
 
@@ -156,10 +132,10 @@ export class AdminController {
             return {
                 success: true,
                 data: {
-                    totalUsers: users.length,
-                    activeNow: activeUsers.length,
+                    totalUsers: totalUsers,
+                    activeNow: activeNow,
                     totalNotes: notes,
-                    growth: parseFloat(growth as string),
+                    growth: growth,
                     userGrowthChart,
                     activityChart,
                     recentActivities,
@@ -180,7 +156,7 @@ export class AdminController {
     @Get('users')
     async getAllUsers() {
         try {
-            const users = await this.usersService.findAll();
+            const users = await this.usersService.findAllForAdmin();
             return {
                 success: true,
                 data: users.map((user) => ({

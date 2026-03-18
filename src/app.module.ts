@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AppController } from './app.controller';
@@ -19,6 +20,7 @@ import { ChatModule } from './chat/chat.module';
 
 @Module({
     imports: [
+        CacheModule.register(), // Cache for 60 seconds
         ConfigModule.forRoot({
             isGlobal: true,
         }),
