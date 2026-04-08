@@ -78,8 +78,9 @@ export class AiService {
     private readonly MAX_PROMPTS_PER_SESSION = 100;
     private readonly MAX_MESSAGES_PER_SESSION = 200;
     private readonly MAX_DOCUMENT_CHUNKS = 300; // Increased to 300 for textbooks
-    private readonly backoffBaseMs = 500;
-    private readonly backoffCapMs = 12_000;
+    // Keep retries snappy to avoid long wait times during key rotation
+    private readonly backoffBaseMs = 150;
+    private readonly backoffCapMs = 1_500;
     private readonly APP_CONTEXT_DOCUMENT_ID = 'izabi-app-context';
     private readonly appContextHash = generateHash(IZABI_APP_CONTEXT);
     private readonly appContextEnsured = new Set<string>();
@@ -361,14 +362,20 @@ export class AiService {
             );
         }
 
-        let lastError: any;
-        this.rrIndex = (this.rrIndex + 1) % keys.length;
+        // Try only a few keys to avoid long waits when multiple keys are unhealthy
+        const MAX_ATTEMPTS = 3;
+        const keysToTry = keys.slice(0, MAX_ATTEMPTS);
 
-        for (let i = 0; i < keys.length; i++) {
-            const key = keys[i];
+        let lastError: any;
+        this.rrIndex = (this.rrIndex + 1) % keysToTry.length;
+
+        for (let i = 0; i < keysToTry.length; i++) {
+            const key = keysToTry[i];
             const keySuffix = key.length > 4 ? '...' + key.slice(-4) : '***';
             try {
-                this.logger.log(`[AiService] Using key ${i + 1}/${keys.length} (${keySuffix})`);
+                this.logger.log(
+                    `[AiService] Using key ${i + 1}/${keysToTry.length} (${keySuffix})`,
+                );
                 const result = await operation(key);
                 this.markKeySuccess(key);
                 return result;
@@ -1356,7 +1363,20 @@ ${message}`
             return similarity.match.doc.aiOutput;
         }
 
-        let contextToUse = extractedText;
+        // Cap very large documents to keep real-time requests responsive
+        const MAX_REALTIME_CHARS = 120_000; // ~30-35k tokens depending on content
+        const isTruncated = extractedText.length > MAX_REALTIME_CHARS;
+        const workingText = isTruncated
+            ? extractedText.slice(0, MAX_REALTIME_CHARS)
+            : extractedText;
+
+        if (isTruncated) {
+            this.logger.warn(
+                `[AiService] Truncated document for realtime processing (${extractedText.length} -> ${MAX_REALTIME_CHARS} chars)`,
+            );
+        }
+
+        let contextToUse = workingText;
         let cacheHit = false;
 
         // 1. Check Neural Wisdom Cache (Persistent Memory)
@@ -1387,7 +1407,7 @@ ${message}`
         }
 
         if (!cacheHit) {
-            const initialTokenEst = this.estimateTokens(extractedText);
+            const initialTokenEst = this.estimateTokens(workingText);
 
             // Treat this as a HARD per-request ceiling, not a dream
             const SAFE_INPUT_TOKENS = 8000;
@@ -1397,7 +1417,7 @@ ${message}`
                     `[AiService] Large Doc (${initialTokenEst} tokens). Performing Initial Intelligence Mapping...`,
                 );
 
-                const chunks = chunkTextBySize(extractedText);
+                const chunks = chunkTextBySize(workingText);
                 console.log(`[AiService] Chunked into ${chunks.length} parts`);
 
                 if (chunks.length > this.MAX_DOCUMENT_CHUNKS) {

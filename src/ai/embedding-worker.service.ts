@@ -29,10 +29,10 @@ export class EmbeddingWorkerService implements OnModuleInit, OnModuleDestroy {
         private readonly configService: ConfigService,
     ) {
         this.pollIntervalMs = Number(
-            this.configService.get('AI_EMBEDDING_QUEUE_POLL_MS') ?? 750,
+            this.configService.get('AI_EMBEDDING_QUEUE_POLL_MS') ?? 250,
         );
         this.concurrency = Number(
-            this.configService.get('AI_EMBEDDING_CONCURRENCY') ?? 2,
+            this.configService.get('AI_EMBEDDING_CONCURRENCY') ?? 4,
         );
     }
 

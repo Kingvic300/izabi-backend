@@ -69,6 +69,9 @@ Focus on helping students understand and remember the material.`,
     FLASHCARDS: `Transform this material into exactly 10 high-recall Flashcards focusing on key concepts.
 RULES:
 - Use ONLY provided context.
+- Include a mix of traditional definition flashcards AND multiple-choice question flashcards.
+- For multiple choice flashcards, format the "front" to include the question and the options (A, B, C, D) clearly.
+- For multiple choice flashcards, the "back" should contain the correct answer and a brief explanation.
 - Keep answers short, precise, and focused on core definitions.
 - No semantic repetition.
 
