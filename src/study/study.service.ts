@@ -23,6 +23,29 @@ import {
 import { StudyQueueService } from './queue/study-queue.service.js';
 import { StudyJobService } from './study-job.service.js';
 
+class Semaphore {
+    private tasks: (() => void)[] = [];
+    constructor(private max: number) {}
+    async acquire(): Promise<void> {
+        if (this.max > 0) {
+            this.max--;
+            return Promise.resolve();
+        }
+        return new Promise<void>(resolve => {
+            this.tasks.push(resolve);
+        });
+    }
+    release(): void {
+        const next = this.tasks.shift();
+        if (next) {
+            next();
+        } else {
+            this.max++;
+        }
+    }
+}
+const aiProcessingSemaphore = new Semaphore(2);
+
 @Injectable()
 export class StudyService {
     private readonly maxCombinedChars = Number(
@@ -638,6 +661,7 @@ export class StudyService {
         combinedText: string,
         config: any,
     ) {
+        await aiProcessingSemaphore.acquire();
         try {
             const userId = history.userId;
             const language = history.language || 'en';
@@ -692,6 +716,8 @@ export class StudyService {
             history.status = 'FAILED';
             (history.metadata as any).error = error.message;
             await (history as any).save();
+        } finally {
+            aiProcessingSemaphore.release();
         }
     }
 
@@ -802,6 +828,7 @@ export class StudyService {
         text: string,
         config: any,
     ) {
+        await aiProcessingSemaphore.acquire();
         try {
             (history.metadata as any).progress = 20;
             await (history as any).save();
@@ -835,6 +862,8 @@ export class StudyService {
             history.status = 'FAILED';
             (history.metadata as any).error = error.message;
             await (history as any).save();
+        } finally {
+            aiProcessingSemaphore.release();
         }
     }
 
