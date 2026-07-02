@@ -5,6 +5,8 @@ import * as nodemailer from 'nodemailer';
 import {
     getOtpEmailTemplate,
     getLiveAnnouncementTemplate,
+    getPartnerInviteTemplate,
+    getPartnerReminderTemplate,
 } from './mail.templates';
 
 @Injectable()
@@ -164,6 +166,47 @@ export class MailService {
         } catch (error: any) {
             console.error(
                 `[MailService] Freeze notification failed:`,
+                error.message,
+            );
+        }
+    }
+
+    // HOW: Invite a user to become someone's accountability partner
+    async sendPartnerInvite(email: string, inviterName: string, acceptUrl: string) {
+        try {
+            await this.sendEmail(
+                email,
+                '🤝 You have an Accountability Partner invite on Izabi',
+                getPartnerInviteTemplate(inviterName, acceptUrl),
+                'Izabi',
+            );
+            console.log(`[MailService] Partner invite sent to ${email}`);
+        } catch (error: any) {
+            console.error(
+                `[MailService] Partner invite failed:`,
+                error.message,
+            );
+        }
+    }
+
+    // HOW: Remind a user they haven't checked in on their shared goal today
+    async sendPartnerReminder(
+        email: string,
+        name: string,
+        partnerName: string,
+        streak: number,
+    ) {
+        try {
+            await this.sendEmail(
+                email,
+                "🔥 Don't break your streak!",
+                getPartnerReminderTemplate(name, partnerName, streak),
+                'Izabi',
+            );
+            console.log(`[MailService] Partner reminder sent to ${email}`);
+        } catch (error: any) {
+            console.error(
+                `[MailService] Partner reminder failed:`,
                 error.message,
             );
         }

@@ -17,6 +17,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AuditModule } from './audit/audit.module';
 import { PaymentsModule } from './payments/payments.module';
 import { ChatModule } from './chat/chat.module';
+import { AccountabilityModule } from './accountability/accountability.module';
 
 @Module({
     imports: [
@@ -44,6 +45,7 @@ import { ChatModule } from './chat/chat.module';
         AuditModule,
         PaymentsModule,
         ChatModule,
+        AccountabilityModule,
     ],
     controllers: [AppController],
     providers: [AppService],

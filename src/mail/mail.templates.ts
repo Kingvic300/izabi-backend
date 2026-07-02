@@ -5,3 +5,5 @@ export * from './templates/getLiveAnnouncementTemplate';
 export * from './templates/getAuditAlertTemplate';
 export * from './templates/getAuditDigestTemplate';
 export * from './templates/audit-helpers';
+export * from './templates/getPartnerInviteTemplate';
+export * from './templates/getPartnerReminderTemplate';

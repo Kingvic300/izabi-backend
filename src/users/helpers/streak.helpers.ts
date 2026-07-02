@@ -210,3 +210,52 @@ export const updateStreak = (
     user.activityStreaks[activityType] = activity;
     user.markModified('activityStreaks');
 };
+
+// HOW: Updates only user.activityStreaks[activityType], skipping the global
+// streak/level/points mutation that updateStreak() always performs.
+// WHY: Some activity types (e.g. accountability-partner check-ins) need their
+// own rolling streak without bumping the user's global streak/XP as a side effect.
+export const updateActivityOnlyStreak = (
+    user: UserDocument,
+    activityType: string,
+    incrementWindowMs: number,
+    graceWindowMs: number,
+) => {
+    const now = new Date();
+
+    if (!user.activityStreaks) user.activityStreaks = {};
+    const activity = user.activityStreaks[activityType] || {
+        current: 0,
+        longest: 0,
+        lastDate: null,
+        lastActivityAt: null,
+        lastStreakIncrementAt: null,
+    };
+
+    const normalizedActivityLastActivityAt = toDate(
+        activity.lastActivityAt || activity.lastDate || null,
+    );
+    const normalizedActivityLastIncrementAt = toDate(
+        activity.lastStreakIncrementAt || activity.lastDate || null,
+    );
+
+    const activityUpdate = computeRollingStreakUpdate({
+        streak: activity.current || 0,
+        lastActivityAt: normalizedActivityLastActivityAt,
+        lastStreakIncrementAt: normalizedActivityLastIncrementAt,
+        now,
+        incrementWindowMs,
+        graceWindowMs,
+    });
+
+    activity.current = activityUpdate.streak;
+    activity.longest = Math.max(activity.longest || 0, activity.current);
+    activity.lastActivityAt = activityUpdate.lastActivityAt;
+    activity.lastStreakIncrementAt = activityUpdate.lastStreakIncrementAt;
+    activity.lastDate = activityUpdate.lastActivityAt;
+
+    user.activityStreaks[activityType] = activity;
+    user.markModified('activityStreaks');
+
+    return activity;
+};
