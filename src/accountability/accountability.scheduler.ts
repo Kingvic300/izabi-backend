@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from '../users/entities/user.entity';
-import { AccountabilityService } from './accountability.service';
+import { AccountabilityService, FRONTEND_URL } from './accountability.service';
 import { MailService } from '../mail/mail.service';
 import { getDisplayName } from '../users/helpers/streak.helpers';
 
@@ -79,7 +79,7 @@ export class AccountabilityScheduler {
             const inviter = await this.userModel
                 .findById(partnership.userA)
                 .exec();
-            const acceptUrl = `https://izabi.onrender.com/dashboard/partner?code=${partnership.inviteCode}`;
+            const acceptUrl = `${FRONTEND_URL}/dashboard/partner?code=${partnership.inviteCode}`;
             await this.mailService.sendPartnerInvite(
                 partnership.inviteeEmail,
                 inviter ? getDisplayName(inviter) : 'A fellow scholar',

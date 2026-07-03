@@ -48,7 +48,7 @@ export const getPartnerReminderTemplate = (
             <h1 class="title">Don't Leave ${partnerFirstName} Hanging!</h1>
             <p class="text">Hey ${firstName}, you haven't checked in on your shared goal with ${partnerFirstName} yet today.</p>
 
-            <a href="https://izabi.onrender.com/dashboard/partner" class="cta-button">Check In Now</a>
+            <a href="https://izabi.halixe.com/dashboard/partner" class="cta-button">Check In Now</a>
 
             <div class="stat-box">
                 <strong>Shared Streak:</strong> ${streak} day${streak === 1 ? '' : 's'}

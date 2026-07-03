@@ -35,7 +35,13 @@ import { MailService } from '../mail/mail.service';
 const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 const STREAK_INCREMENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const STREAK_GRACE_WINDOW_MS = 26 * 60 * 60 * 1000;
-const FRONTEND_URL = 'https://izabi.onrender.com';
+export const FRONTEND_URL = (
+    process.env.PUBLIC_APP_URL ||
+    process.env.APP_PUBLIC_URL ||
+    'https://izabi.halixe.com'
+)
+    .trim()
+    .replace(/\/+$/, '');
 
 const getActivityKey = (partnershipId: string) =>
     `accountability_${partnershipId}`;
