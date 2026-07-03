@@ -161,6 +161,39 @@ export class AiController {
     }
 
     @UseGuards(JwtAuthGuard)
+    @UseGuards(JwtAuthGuard)
+    @Post('ask-context')
+    async askContext(
+        @Body('question') question: string,
+        @Body('context') context: string,
+        @Body('sourceTitle') sourceTitle: string | undefined,
+        @Body('sourceUrl') sourceUrl: string | undefined,
+        @Req() req: any,
+    ) {
+        const userId = req.user.userId;
+        if (!question || !context) {
+            throw new BadRequestException(
+                'question and context are required',
+            );
+        }
+
+        const answer = await this.aiService.answerFromExternalContext(
+            userId,
+            question,
+            context,
+        );
+        await this.usersService.incrementActivityCount(
+            userId,
+            'dailyMessages',
+        );
+
+        return {
+            success: true,
+            answer,
+            source: { title: sourceTitle, url: sourceUrl },
+        };
+    }
+
     @Post('summarize')
     async enqueueSummary(@Body('text') text: string, @Req() req: any) {
         const userId = req.user.userId;

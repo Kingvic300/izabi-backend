@@ -19,6 +19,7 @@ async function bootstrap() {
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'https://izabi.onrender.com',
+        'https://izabi-backend-glzv.onrender.com',
     ];
     const normalizeOrigin = (value: string): string =>
         value.trim().replace(/\/+$/, '').toLowerCase();

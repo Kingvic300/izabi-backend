@@ -828,7 +828,7 @@ export class AiService {
             this.checkRateLimit(userId);
         }
 
-        const prompt = await this.buildContextAwarePrompt(
+        const { prompt, hasContext } = await this.buildContextAwarePrompt(
             userId,
             message,
             documentId,
@@ -845,14 +845,16 @@ export class AiService {
             prompt: finalPrompt,
             systemPrompt:
                 systemPrompt ||
-                `You are an Academic AI assistant designed to answer questions strictly using provided study materials.
+                (hasContext
+                    ? `You are an Academic AI assistant designed to answer questions strictly using provided study materials.
 RULES:
 1. Use ONLY the information contained in the provided Context.
 2. Synthesize multiple context sections logically.
 3. If the answer is not supported, respond exactly: "The uploaded materials do not contain enough information to answer this."
 4. No outside knowledge or facts.
 5. Cite sources using their document label in parentheses (e.g., (Document Name)) after relevant statements.
-6. Prioritize accuracy over creativity.`,
+6. Prioritize accuracy over creativity.`
+                    : this.GENERAL_ASSISTANT_SYSTEM_PROMPT),
             maxHistoryMessages,
             maxInputTokens,
         });
@@ -886,7 +888,7 @@ RULES:
         let streamResponse: any;
 
         try {
-            const prompt = await this.buildContextAwarePrompt(
+            const { prompt, hasContext } = await this.buildContextAwarePrompt(
                 userId || '',
                 message,
                 documentId,
@@ -898,14 +900,17 @@ RULES:
                 options?.format,
             );
 
+            const systemPrompt = hasContext
+                ? 'You are Izabi, a world-class Academic AI Assistant. You answer questions strictly based on the provided context. If information is missing, you state: "The uploaded materials do not contain enough information to answer this." Do not use outside knowledge. Cite sources per chunk label.'
+                : this.GENERAL_ASSISTANT_SYSTEM_PROMPT;
+
             // Only connection phase is retried
             streamResponse = await this.executeWithRetry(async (key) => {
                 const res = await this.callGroqApi(
                     [
                         {
                             role: 'system',
-                            content:
-                                'You are Izabi, a world-class Academic AI Assistant. You answer questions strictly based on the provided context. If information is missing, you state: "The uploaded materials do not contain enough information to answer this." Do not use outside knowledge. Cite sources per chunk label.',
+                            content: systemPrompt,
                         },
                         { role: 'user', content: finalPrompt },
                     ],
@@ -1001,7 +1006,7 @@ RULES:
         }
         this.currentUserId = userId || null;
 
-        const prompt = await this.buildContextAwarePrompt(
+        const { prompt, hasContext } = await this.buildContextAwarePrompt(
             userId,
             message,
             documentId,
@@ -1017,8 +1022,11 @@ RULES:
             `[AiService] Prompt prepared. length: ${prompt.length}. Entering executeWithRetry...`,
         );
         return this.executeWithRetry(async (key) => {
-            const systemPrompt = options?.systemPrompt ||
-                'You are an Academic AI assistant. Answer strictly based on the provided context sections. If the answer is not in the context, say "The uploaded materials do not contain enough information to answer this." Cite your sources (Document Label).';
+            const systemPrompt =
+                options?.systemPrompt ||
+                (hasContext
+                    ? 'You are an Academic AI assistant. Answer strictly based on the provided context sections. If the answer is not in the context, say "The uploaded materials do not contain enough information to answer this." Cite your sources (Document Label).'
+                    : this.GENERAL_ASSISTANT_SYSTEM_PROMPT);
             const res = await this.callGroqApi(
                 [
                     {
@@ -1034,14 +1042,19 @@ RULES:
         }, userId);
     }
 
+    // Chunks scoring below this cosine-similarity are treated as noise and
+    // dropped, so unrelated stored material never masquerades as "context"
+    // and forces the model to refuse an otherwise answerable question.
+    private readonly MIN_CONTEXT_SIMILARITY = 0.35;
+
     private async buildContextAwarePrompt(
         userId: string,
         message: string,
         documentId?: string,
-    ): Promise<string> {
+    ): Promise<{ prompt: string; hasContext: boolean }> {
         const trimmedMessage = (message || '').trim();
         if (trimmedMessage.length < 5) {
-            return trimmedMessage || message;
+            return { prompt: trimmedMessage || message, hasContext: false };
         }
 
         await this.ensureAppContextIndexed(userId);
@@ -1050,6 +1063,11 @@ RULES:
         console.log(
             `[AiService] Searching knowledge base for: "${message}"...`,
         );
+        // Chunks pulled from a document the user explicitly attached are kept
+        // even on a mediocre score match; chunks found via an unscoped search
+        // (general chat, or the always-on app-help index) must clear the
+        // relevance bar so they can't crowd out - or stand in for - real context.
+        const hasExplicitDocument = Boolean(documentId);
         let relevantChunks: any[] = [];
         try {
             const queryVector = await this.vectorService.getEmbedding(message);
@@ -1073,8 +1091,19 @@ RULES:
                           4,
                       );
 
+            const filteredPrimary = hasExplicitDocument
+                ? primaryChunks
+                : primaryChunks.filter(
+                      (c) => (c.score ?? 0) >= this.MIN_CONTEXT_SIMILARITY,
+                  );
+            const filteredApp = appChunks.filter(
+                (c) => (c.score ?? 0) >= this.MIN_CONTEXT_SIMILARITY,
+            );
+
             const seen = new Set<string>();
-            const combined = [...primaryChunks, ...appChunks];
+            // Primary chunks come first so an explicitly attached document
+            // can never be pushed out of the top slots by generic app-help text.
+            const combined = [...filteredPrimary, ...filteredApp];
             const deduped: any[] = [];
             for (const chunk of combined) {
                 const key = String(chunk?._id ?? chunk?.content ?? '');
@@ -1083,7 +1112,6 @@ RULES:
                 deduped.push(chunk);
             }
 
-            deduped.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
             relevantChunks = deduped.slice(0, 6);
         } catch (error: any) {
             this.logger.warn(
@@ -1091,12 +1119,17 @@ RULES:
             );
             relevantChunks = [];
             try {
-                relevantChunks = await this.vectorService.search(
+                const fallbackChunks = await this.vectorService.search(
                     userId,
                     message,
                     documentId,
                     5,
                 );
+                relevantChunks = hasExplicitDocument
+                    ? fallbackChunks
+                    : fallbackChunks.filter(
+                          (c) => (c.score ?? 0) >= this.MIN_CONTEXT_SIMILARITY,
+                      );
             } catch (innerError: any) {
                 this.logger.warn(
                     `[AiService] Vector search failed: ${this.summarizeError(innerError)}`,
@@ -1119,8 +1152,12 @@ RULES:
             console.log(`[AiService] No relevant context found.`);
         }
 
-        return context
-            ? `Evaluate the provided context and answer the user's question.
+        if (!context) {
+            return { prompt: message, hasContext: false };
+        }
+
+        return {
+            prompt: `Evaluate the provided context and answer the user's question.
 RULES:
 - Use ONLY the provided context.
 - Cite sources using their document labels in parentheses.
@@ -1131,8 +1168,47 @@ Context:
 ${context}
 
 User Question:
-${message}`
-            : message;
+${message}`,
+            hasContext: true,
+        };
+    }
+
+    private readonly GENERAL_ASSISTANT_SYSTEM_PROMPT =
+        'You are Izabi, a friendly and knowledgeable AI study assistant. Answer the user directly using your own general knowledge - help with studying, homework, explanations, or casual questions. When the user has uploaded or imported notes/PDFs relevant to their question, you will be given that material as context and should prioritize and cite it; otherwise, just answer normally without asking the user to provide context first.';
+
+    /**
+     * Answers a question using only the provided ad-hoc context (e.g. a webpage
+     * snippet), bypassing the RAG pipeline so unrelated stored notes don't leak in.
+     */
+    async answerFromExternalContext(
+        userId: string,
+        question: string,
+        context: string,
+    ): Promise<string> {
+        if (userId) {
+            await this.usersService.checkActivityLimit(userId, 'dailyMessages');
+            this.checkRateLimit(userId);
+        }
+        const language = await this.resolveLanguage(userId);
+        const prompt = `Webpage context:\n${context}\n\nQuestion:\n${question}`;
+        const finalPrompt = this.applyLanguageInstruction(
+            prompt,
+            language,
+            'markdown',
+        );
+        return this.executeWithRetry(async (key) => {
+            const systemPrompt =
+                'You are a concise research assistant. Answer the question using ONLY the provided webpage context. If the context does not contain the answer, say so plainly instead of guessing.';
+            const res = await this.callGroqApi(
+                [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: finalPrompt },
+                ],
+                key,
+                false,
+            );
+            return res.data.choices[0].message.content;
+        }, userId);
     }
 
     async uploadFileForChat(userId: string, file: Express.Multer.File) {
