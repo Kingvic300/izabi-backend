@@ -270,6 +270,174 @@ export class StudyService {
         };
     }
 
+    // HOW: Same on-demand-translate-and-cache pattern as
+    //      getFlashcardsForLanguage, applied to the review quiz questions
+    //      generated for a study session.
+    async getQuestionsForLanguage(
+        userId: string,
+        historyId: string,
+        requestedLanguage?: string,
+    ): Promise<{
+        historyId: string;
+        language: string;
+        sourceLanguage: string;
+        questions: any[];
+        translated: boolean;
+        cached: boolean;
+    }> {
+        const history = await this.studyModel.findOne({
+            _id: historyId,
+            userId,
+        });
+
+        if (!history) {
+            throw new NotFoundException('Study session not found.');
+        }
+
+        if (
+            !Array.isArray(history.questions) ||
+            history.questions.length === 0
+        ) {
+            throw new BadRequestException(
+                'Quiz questions have not been generated for this study session yet.',
+            );
+        }
+
+        const sourceLanguage = this.normalizeLanguage(history.language);
+        const targetLanguage = await this.resolveLanguage(
+            userId,
+            requestedLanguage,
+        );
+
+        if (targetLanguage === sourceLanguage) {
+            return {
+                historyId,
+                language: sourceLanguage,
+                sourceLanguage,
+                questions: history.questions,
+                translated: false,
+                cached: true,
+            };
+        }
+
+        if (!history.questionsByLanguage) {
+            history.questionsByLanguage = new Map();
+        }
+        const cachedTranslation =
+            history.questionsByLanguage.get(targetLanguage);
+        if (Array.isArray(cachedTranslation) && cachedTranslation.length > 0) {
+            return {
+                historyId,
+                language: targetLanguage,
+                sourceLanguage,
+                questions: cachedTranslation,
+                translated: true,
+                cached: true,
+            };
+        }
+
+        const translated = await this.geminiService.translateQuestions(
+            history.questions,
+            targetLanguage,
+            sourceLanguage,
+        );
+
+        history.questionsByLanguage.set(targetLanguage, translated);
+        history.markModified('questionsByLanguage');
+        await history.save();
+
+        return {
+            historyId,
+            language: targetLanguage,
+            sourceLanguage,
+            questions: translated,
+            translated: true,
+            cached: false,
+        };
+    }
+
+    // HOW: Same on-demand-translate-and-cache pattern applied to the
+    //      free-text summary of a study session.
+    async getSummaryForLanguage(
+        userId: string,
+        historyId: string,
+        requestedLanguage?: string,
+    ): Promise<{
+        historyId: string;
+        language: string;
+        sourceLanguage: string;
+        summary: string;
+        translated: boolean;
+        cached: boolean;
+    }> {
+        const history = await this.studyModel.findOne({
+            _id: historyId,
+            userId,
+        });
+
+        if (!history) {
+            throw new NotFoundException('Study session not found.');
+        }
+
+        if (!history.summary || !history.summary.trim()) {
+            throw new BadRequestException(
+                'A summary has not been generated for this study session yet.',
+            );
+        }
+
+        const sourceLanguage = this.normalizeLanguage(history.language);
+        const targetLanguage = await this.resolveLanguage(
+            userId,
+            requestedLanguage,
+        );
+
+        if (targetLanguage === sourceLanguage) {
+            return {
+                historyId,
+                language: sourceLanguage,
+                sourceLanguage,
+                summary: history.summary,
+                translated: false,
+                cached: true,
+            };
+        }
+
+        if (!history.summaryByLanguage) {
+            history.summaryByLanguage = new Map();
+        }
+        const cachedTranslation =
+            history.summaryByLanguage.get(targetLanguage);
+        if (cachedTranslation && cachedTranslation.trim()) {
+            return {
+                historyId,
+                language: targetLanguage,
+                sourceLanguage,
+                summary: cachedTranslation,
+                translated: true,
+                cached: true,
+            };
+        }
+
+        const translated = await this.geminiService.translateText(
+            history.summary,
+            targetLanguage,
+            sourceLanguage,
+        );
+
+        history.summaryByLanguage.set(targetLanguage, translated);
+        history.markModified('summaryByLanguage');
+        await history.save();
+
+        return {
+            historyId,
+            language: targetLanguage,
+            sourceLanguage,
+            summary: translated,
+            translated: true,
+            cached: false,
+        };
+    }
+
     // HOW: Initiates processing for a file uploaded directly to the backend
     // WHY: Removes direct frontend -> Cloudinary dependency for high-security or restrictive networks
     async startDirectUpload(

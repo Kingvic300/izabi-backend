@@ -51,6 +51,14 @@ export class StudyHistory {
     @Prop({ type: Map, of: [Object], default: {} })
     flashcardsByLanguage?: Map<string, any[]>;
 
+    // Same on-demand-translate-and-cache pattern as flashcardsByLanguage,
+    // applied to the review quiz questions and the text summary.
+    @Prop({ type: Map, of: [Object], default: {} })
+    questionsByLanguage?: Map<string, any>;
+
+    @Prop({ type: Map, of: String, default: {} })
+    summaryByLanguage?: Map<string, string>;
+
     @Prop({ type: Object })
     metadata?: Record<string, any>;
 }

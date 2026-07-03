@@ -58,12 +58,90 @@ export class GeminiService {
         targetLanguage: string,
         sourceLanguage: string,
     ): Promise<FlashcardLike[]> {
+        return this.translateJsonArray(
+            flashcards,
+            targetLanguage,
+            sourceLanguage,
+            `Human-readable fields on flashcards typically include "front", "back", "question", "answer", "hint", "explanation", "term", "definition".`,
+        );
+    }
+
+    /**
+     * Translates a set of quiz questions into `targetLanguage`. Same
+     * shape-preservation contract as translateFlashcards: options, the
+     * correct answer, and explanations are translated; ids/types/booleans
+     * are left untouched.
+     */
+    async translateQuestions(
+        questions: FlashcardLike[],
+        targetLanguage: string,
+        sourceLanguage: string,
+    ): Promise<FlashcardLike[]> {
+        return this.translateJsonArray(
+            questions,
+            targetLanguage,
+            sourceLanguage,
+            `Human-readable fields on quiz questions typically include "question", "text", "options" (array of strings), "answer", "correctAnswer", "explanation", "title". Every option in an "options" array must be translated too, and the "answer"/"correctAnswer" value must still match its (now translated) corresponding option text.`,
+        );
+    }
+
+    /**
+     * Translates a single block of free text (e.g. a study session summary)
+     * into `targetLanguage`. Markdown formatting (headers, bold, lists) is
+     * preserved as-is; only the prose is translated.
+     */
+    async translateText(
+        text: string,
+        targetLanguage: string,
+        sourceLanguage: string,
+    ): Promise<string> {
         if (!this.client) {
             throw new ServiceUnavailableException(
                 'Translation service is not configured. Set GEMINI_API_KEY on the backend.',
             );
         }
-        if (!Array.isArray(flashcards) || flashcards.length === 0) {
+        if (!text || !text.trim()) {
+            return text;
+        }
+
+        const model = this.client.getGenerativeModel({ model: this.modelName });
+        const prompt = [
+            `You are a precise study-material translator embedded in an education app.`,
+            `Translate the following Markdown text from "${sourceLanguage}" into "${targetLanguage}".`,
+            `Rules:`,
+            `- Preserve all Markdown formatting exactly (headers, bold, lists, line breaks).`,
+            `- Preserve technical terms, proper nouns, and formulas where translating them would change the academic meaning; otherwise translate naturally and idiomatically for a student.`,
+            `- Respond with ONLY the translated Markdown text. No commentary, no code fences.`,
+            ``,
+            `Text:`,
+            text,
+        ].join('\n');
+
+        try {
+            const result = await model.generateContent(prompt);
+            return result.response.text().trim();
+        } catch (error: any) {
+            this.logger.error(
+                `Gemini text translation failed for language "${targetLanguage}": ${error?.message || error}`,
+            );
+            throw new InternalServerErrorException(
+                'Failed to translate summary. Please try again shortly.',
+            );
+        }
+    }
+
+    private async translateJsonArray(
+        items: FlashcardLike[],
+        targetLanguage: string,
+        sourceLanguage: string,
+        fieldsHint: string,
+    ): Promise<FlashcardLike[]> {
+        if (!this.client) {
+            throw new ServiceUnavailableException(
+                'Translation service is not configured. Set GEMINI_API_KEY on the backend.',
+            );
+        }
+        if (!Array.isArray(items) || items.length === 0) {
             return [];
         }
 
@@ -75,19 +153,16 @@ export class GeminiService {
         });
 
         const prompt = this.buildTranslationPrompt(
-            flashcards,
+            items,
             targetLanguage,
             sourceLanguage,
+            fieldsHint,
         );
 
         try {
             const result = await model.generateContent(prompt);
             const rawText = result.response.text();
-            const parsed = this.parseTranslatedFlashcards(
-                rawText,
-                flashcards,
-            );
-            return parsed;
+            return this.parseTranslatedArray(rawText, items);
         } catch (error: any) {
             this.logger.error(
                 `Gemini translation failed for language "${targetLanguage}": ${error?.message || error}`,
@@ -99,26 +174,27 @@ export class GeminiService {
     }
 
     private buildTranslationPrompt(
-        flashcards: FlashcardLike[],
+        items: FlashcardLike[],
         targetLanguage: string,
         sourceLanguage: string,
+        fieldsHint: string,
     ): string {
         return [
             `You are a precise study-material translator embedded in an education app.`,
-            `Translate the following flashcards from "${sourceLanguage}" into "${targetLanguage}".`,
+            `Translate the following JSON array from "${sourceLanguage}" into "${targetLanguage}".`,
             `Rules:`,
-            `- Translate ONLY human-readable text values (e.g. "front", "back", "question", "answer", "hint", "explanation", "term", "definition").`,
+            `- Translate ONLY human-readable text values. ${fieldsHint}`,
             `- Keep the exact same JSON array structure, the same number of objects, and the same keys per object.`,
             `- Never translate or alter non-text fields such as ids, numbers, booleans, or arrays of tags meant as identifiers.`,
             `- Preserve technical terms, proper nouns, formulas, and numbers exactly where translating them would change the academic meaning; otherwise translate naturally and idiomatically for a student.`,
             `- Respond with ONLY a valid JSON array. No markdown fences, no commentary.`,
             ``,
-            `Flashcards JSON:`,
-            JSON.stringify(flashcards),
+            `JSON:`,
+            JSON.stringify(items),
         ].join('\n');
     }
 
-    private parseTranslatedFlashcards(
+    private parseTranslatedArray(
         rawText: string,
         original: FlashcardLike[],
     ): FlashcardLike[] {
@@ -145,7 +221,7 @@ export class GeminiService {
 
         if (!Array.isArray(parsed) || parsed.length !== original.length) {
             this.logger.warn(
-                'Translated flashcards shape mismatch; falling back to original content for safety.',
+                'Translated content shape mismatch; falling back to original content for safety.',
             );
             return original;
         }

@@ -197,4 +197,42 @@ export class StudyController {
             requestedLanguage,
         );
     }
+
+    @UseGuards(JwtAuthGuard)
+    @Get(':id/questions')
+    async getQuestions(
+        @Param('id') id: string,
+        @Req() req: any,
+        @Headers('accept-language') acceptLanguage?: string,
+        @Query('lang') langQuery?: string,
+    ) {
+        const userId = req.user.userId;
+        const requestedLanguage =
+            langQuery || parsePrimaryLanguage(acceptLanguage);
+
+        return this.studyService.getQuestionsForLanguage(
+            userId,
+            id,
+            requestedLanguage,
+        );
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Get(':id/summary')
+    async getSummary(
+        @Param('id') id: string,
+        @Req() req: any,
+        @Headers('accept-language') acceptLanguage?: string,
+        @Query('lang') langQuery?: string,
+    ) {
+        const userId = req.user.userId;
+        const requestedLanguage =
+            langQuery || parsePrimaryLanguage(acceptLanguage);
+
+        return this.studyService.getSummaryForLanguage(
+            userId,
+            id,
+            requestedLanguage,
+        );
+    }
 }
