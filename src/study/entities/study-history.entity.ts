@@ -41,6 +41,16 @@ export class StudyHistory {
     @Prop({ default: 'en' })
     language?: string;
 
+    // On-demand translation cache for flashcards.
+    // Key: normalized language code (e.g. "en", "fr", "es").
+    // Value: the flashcard array translated into that language.
+    // `flashcards` above stays the canonical, source-language set (the
+    // language the material was originally generated in); every other
+    // language is compiled lazily the first time it's requested and then
+    // cached here so subsequent fetches are instant.
+    @Prop({ type: Map, of: [Object], default: {} })
+    flashcardsByLanguage?: Map<string, any[]>;
+
     @Prop({ type: Object })
     metadata?: Record<string, any>;
 }

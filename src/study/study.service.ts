@@ -2,6 +2,7 @@ import {
     Injectable,
     BadRequestException,
     InternalServerErrorException,
+    NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -12,6 +13,7 @@ import {
     StudyHistoryDocument,
 } from './entities/study-history.entity.js';
 import { AiService } from '../ai/ai.service.js';
+import { GeminiService } from '../ai/gemini.service.js';
 import { CloudinaryService } from '../cloudinary/cloudinary.service.js';
 import { UsersService } from '../users/users.service.js';
 import { STUDY_PROMPTS } from './study.prompts.js';
@@ -55,6 +57,7 @@ export class StudyService {
         @InjectModel(StudyHistory.name)
         private studyModel: Model<StudyHistoryDocument>,
         private readonly aiService: AiService,
+        private readonly geminiService: GeminiService,
         private readonly cloudinaryService: CloudinaryService,
         private readonly usersService: UsersService,
         private readonly studyQueueService: StudyQueueService,
@@ -172,6 +175,99 @@ export class StudyService {
             };
         }
         return { ...base, language: normalized };
+    }
+
+    // HOW: Fetches flashcards for a study session in the requested language,
+    //      translating them on-demand (and caching the result) if that
+    //      language hasn't been compiled yet.
+    // WHY: This is the core of the multilingual flow described by product:
+    //      the source-language flashcards are generated once at upload time;
+    //      every additional language is a cheap, cached Gemini translation
+    //      rather than a full document re-generation.
+    async getFlashcardsForLanguage(
+        userId: string,
+        historyId: string,
+        requestedLanguage?: string,
+    ): Promise<{
+        historyId: string;
+        language: string;
+        sourceLanguage: string;
+        flashcards: any[];
+        translated: boolean;
+        cached: boolean;
+    }> {
+        const history = await this.studyModel.findOne({
+            _id: historyId,
+            userId,
+        });
+
+        if (!history) {
+            throw new NotFoundException('Study session not found.');
+        }
+
+        if (
+            !Array.isArray(history.flashcards) ||
+            history.flashcards.length === 0
+        ) {
+            throw new BadRequestException(
+                'Flashcards have not been generated for this study session yet.',
+            );
+        }
+
+        const sourceLanguage = this.normalizeLanguage(history.language);
+        const targetLanguage = await this.resolveLanguage(
+            userId,
+            requestedLanguage,
+        );
+
+        // 1. Requested language matches the canonical source content.
+        if (targetLanguage === sourceLanguage) {
+            return {
+                historyId,
+                language: sourceLanguage,
+                sourceLanguage,
+                flashcards: history.flashcards,
+                translated: false,
+                cached: true,
+            };
+        }
+
+        // 2. Check the per-language cache (Mongoose Map).
+        if (!history.flashcardsByLanguage) {
+            history.flashcardsByLanguage = new Map();
+        }
+        const cachedTranslation =
+            history.flashcardsByLanguage.get(targetLanguage);
+        if (Array.isArray(cachedTranslation) && cachedTranslation.length > 0) {
+            return {
+                historyId,
+                language: targetLanguage,
+                sourceLanguage,
+                flashcards: cachedTranslation,
+                translated: true,
+                cached: true,
+            };
+        }
+
+        // 3. Not cached yet - translate on demand via Gemini and persist.
+        const translated = await this.geminiService.translateFlashcards(
+            history.flashcards,
+            targetLanguage,
+            sourceLanguage,
+        );
+
+        history.flashcardsByLanguage.set(targetLanguage, translated);
+        history.markModified('flashcardsByLanguage');
+        await history.save();
+
+        return {
+            historyId,
+            language: targetLanguage,
+            sourceLanguage,
+            flashcards: translated,
+            translated: true,
+            cached: false,
+        };
     }
 
     // HOW: Initiates processing for a file uploaded directly to the backend

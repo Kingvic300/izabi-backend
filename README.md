@@ -57,6 +57,43 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Multilingual flashcards (on-demand translation)
+
+Flashcards are generated once, in whatever language the source document/session
+was created in (`StudyHistory.language`, the "source language"). Every other
+language a user toggles to is compiled **on demand** and cached, instead of
+re-running the full generation pipeline per language.
+
+**Flow**
+
+1. A document is uploaded and processed as usual; flashcards are generated and
+   saved in the source language.
+2. The frontend's Axios interceptor sets an `Accept-Language` header (e.g.
+   `en`, `fr`, `es-MX`) based on the user's app-language toggle.
+3. `GET /api/study/:id/flashcards` reads that header (or a `?lang=` query
+   param, or the user's saved `preferredLanguage` as a final fallback).
+4. If flashcards for that language are already cached, they're returned
+   instantly. Otherwise the backend calls Gemini to translate the canonical
+   flashcards into the requested language, stores the result in a per-document
+   `flashcardsByLanguage` Map (Mongoose `Map` field, keyed by normalized
+   language code), and returns the translated set.
+5. Every subsequent request for that language, by any user viewing that
+   session, is served straight from the cache.
+
+**Configuration**
+
+Set the following environment variable to enable translation:
+
+```
+GEMINI_API_KEY=your-gemini-api-key
+# optional, defaults to gemini-1.5-flash
+GEMINI_MODEL=gemini-1.5-flash
+```
+
+If `GEMINI_API_KEY` is not set, requests for a non-source language will fail
+with a 503 until it's configured; requests for the source language are
+unaffected.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
