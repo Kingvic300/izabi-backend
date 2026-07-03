@@ -57,6 +57,51 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Multilingual flashcards, quiz questions & summaries (on-demand translation)
+
+Study content (flashcards, review quiz questions, and the session summary) is
+generated once, in whatever language the source document/session was created
+in (`StudyHistory.language`, the "source language"). Every other language a
+user toggles to is compiled **on demand** and cached, instead of re-running
+the full generation pipeline per language.
+
+**Flow**
+
+1. A document is uploaded and processed as usual; flashcards, questions, and
+   a summary are generated and saved in the source language.
+2. The frontend's Axios interceptor sets an `Accept-Language` header (e.g.
+   `en`, `fr`, `es-MX`) based on the user's app-language toggle.
+3. Any of the endpoints below reads that header (or a `?lang=` query param,
+   or the user's saved `preferredLanguage` as a final fallback):
+   - `GET /api/study/:id/flashcards`
+   - `GET /api/study/:id/questions`
+   - `GET /api/study/:id/summary`
+4. If content for that language is already cached, it's returned instantly.
+   Otherwise the backend calls Gemini to translate the canonical content into
+   the requested language, stores the result on the document
+   (`flashcardsByLanguage` / `questionsByLanguage` / `summaryByLanguage`,
+   each a Mongoose `Map` keyed by normalized language code), and returns the
+   translated content.
+5. Every subsequent request for that language, by any user viewing that
+   session, is served straight from the cache.
+
+Each response includes `language`, `sourceLanguage`, `translated`, and
+`cached` flags so the frontend can show translation state if it wants to.
+
+**Configuration**
+
+Set the following environment variable to enable translation:
+
+```
+GEMINI_API_KEY=your-gemini-api-key
+# optional, defaults to gemini-1.5-flash
+GEMINI_MODEL=gemini-1.5-flash
+```
+
+If `GEMINI_API_KEY` is not set, requests for a non-source language will fail
+with a 503 until it's configured; requests for the source language are
+unaffected.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

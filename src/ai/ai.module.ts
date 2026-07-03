@@ -24,6 +24,7 @@ import { AiCacheService } from './ai-cache.service';
 import { EmbeddingQueueService } from './embedding-queue.service';
 import { EmbeddingJob, EmbeddingJobSchema } from './entities/embedding-job.entity';
 import { EmbeddingWorkerService } from './embedding-worker.service';
+import { GeminiService } from './gemini.service';
 
 @Module({
     imports: [
@@ -46,6 +47,7 @@ import { EmbeddingWorkerService } from './embedding-worker.service';
         AiCacheService,
         EmbeddingQueueService,
         EmbeddingWorkerService,
+        GeminiService,
     ],
     exports: [
         AiService,
@@ -53,6 +55,7 @@ import { EmbeddingWorkerService } from './embedding-worker.service';
         AiQueueService,
         AiCacheService,
         EmbeddingQueueService,
+        GeminiService,
     ],
 })
 export class AiModule {}
