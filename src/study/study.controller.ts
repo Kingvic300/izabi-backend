@@ -142,6 +142,7 @@ export class StudyController {
         @Req() req: any,
         @Body('type') type: string,
         @Body('options') options?: string,
+        @Body('lang') lang?: string,
     ) {
         if (!files || files.length === 0)
             throw new BadRequestException(
@@ -154,6 +155,7 @@ export class StudyController {
         return this.studyService.startMultiDirectUpload(userId, files, {
             type: type as any,
             options: parsedOptions,
+            lang,
         });
     }
 
