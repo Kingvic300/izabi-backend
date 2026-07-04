@@ -131,6 +131,20 @@ export class UsersController {
         );
     }
 
+    @Post('forgot-password')
+    async forgotPassword(@Body() body: any) {
+        return await this.authService.forgotPassword(body.email);
+    }
+
+    @Post('reset-password')
+    async resetPassword(@Body() body: any) {
+        return await this.authService.resetPasswordWithOtp(
+            body.email,
+            body.otp,
+            body.newPassword,
+        );
+    }
+
     @UseGuards(JwtAuthGuard)
     @Get('profile')
     async getProfile(@Req() req: any) {

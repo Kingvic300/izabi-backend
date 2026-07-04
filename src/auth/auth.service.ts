@@ -272,6 +272,80 @@ export class AuthService {
         };
     }
 
+    async forgotPassword(email: string) {
+        const normalizedEmail = (email || '').trim().toLowerCase();
+        if (!normalizedEmail) {
+            throw new BadRequestException('Email is required');
+        }
+
+        const genericResponse = {
+            message: 'If that email exists, a reset code has been sent.',
+        };
+
+        const user = await this.usersService.findByEmail(normalizedEmail);
+        if (!user) {
+            // Don't reveal whether the account exists.
+            return genericResponse;
+        }
+
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+        await this.usersService.updateOtp(normalizedEmail, otp, expires);
+
+        try {
+            await this.mailService.sendOtp(normalizedEmail, otp);
+        } catch (error) {
+            console.error(
+                `[Password Reset] Failed to send email to ${normalizedEmail}:`,
+                error,
+            );
+            throw new InternalServerErrorException(
+                'Failed to send reset email. Please try again later.',
+            );
+        }
+
+        return genericResponse;
+    }
+
+    async resetPasswordWithOtp(
+        email: string,
+        otp: string,
+        newPassword: string,
+    ) {
+        const normalizedEmail = (email || '').trim().toLowerCase();
+        if (!normalizedEmail || !otp || !newPassword) {
+            throw new BadRequestException(
+                'Email, code, and new password are required',
+            );
+        }
+        if (newPassword.length < 6) {
+            throw new BadRequestException(
+                'Password must be at least 6 characters long',
+            );
+        }
+
+        const user = await this.usersService.findByEmail(normalizedEmail);
+        if (
+            !user ||
+            !user.otp ||
+            user.otp !== otp ||
+            !user.otpExpires ||
+            new Date() > user.otpExpires
+        ) {
+            throw new UnauthorizedException('Invalid or expired code');
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await this.usersService.updatePassword(
+            user._id.toString(),
+            hashedPassword,
+        );
+        // Invalidate the OTP so it cannot be reused.
+        await this.usersService.updateOtp(normalizedEmail, '', new Date(0));
+
+        return { message: 'Password updated' };
+    }
+
     async googleLogin(idToken: string) {
         try {
             const ticket = await this.googleClient.verifyIdToken({
