@@ -227,11 +227,24 @@ export class AiService {
         }
 
         const isJson = format === 'json' || /\bjson\b/i.test(prompt);
-        const rules = [
-            'LANGUAGE RULES:',
-            `- Respond in ${language}.`,
-            '- Preserve technical terms, names, and formulas.',
-        ];
+        const rules =
+            lowered === 'pidgin'
+                ? [
+                      'LANGUAGE RULES:',
+                      '- Rewrite all text into natural, authentic Nigerian Pidgin English, like how educated Nigerians naturally speak.',
+                      '- Keep the original meaning exactly the same. Do not translate word for word if it sounds awkward; rewrite so it flows naturally.',
+                      '- Use common Nigerian Pidgin expressions such as na, dey, wey, go, fit, don, and abi where appropriate.',
+                      '- This must be Nigerian Pidgin only - avoid Hawaiian Pidgin, Jamaican Patois, or any other dialect.',
+                      '- Keep technical, scientific, and mathematical terms (e.g., "equation," "linear equation," "photosynthesis") in English unless there is a widely accepted Nigerian Pidgin equivalent.',
+                      '- Preserve the tone and level of formality of the original text.',
+                      '- Ensure the output is grammatically consistent Nigerian Pidgin that is easy for Nigerian speakers to understand.',
+                      '- Preserve names and formulas exactly as given.',
+                  ]
+                : [
+                      'LANGUAGE RULES:',
+                      `- Respond in ${language}.`,
+                      '- Preserve technical terms, names, and formulas.',
+                  ];
         if (isJson) {
             rules.push(
                 '- Keep all JSON keys and structure exactly as specified in English; translate only the text values.',
@@ -1142,7 +1155,7 @@ RULES:
             context = relevantChunks
                 .map(
                     (c) =>
-                        `[[${c.documentId || 'context'}]]\n${c.content || ''}`,
+                        `[[${c.metadata?.filename || c.documentId || 'context'}]]\n${c.content || ''}`,
                 )
                 .join('\n\n---\n\n');
             console.log(
