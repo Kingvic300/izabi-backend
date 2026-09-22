@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as path from 'path';
@@ -19,7 +19,7 @@ type SearchResult = {
 };
 
 @Injectable()
-export class VectorService implements OnModuleInit {
+export class VectorService {
     private readonly logger = new Logger(VectorService.name);
 
     private embedder: any;
@@ -29,10 +29,6 @@ export class VectorService implements OnModuleInit {
         @InjectModel(KnowledgeBase.name)
         private readonly knowledgeModel: Model<KnowledgeBaseDocument>,
     ) {}
-
-    async onModuleInit(): Promise<void> {
-        await this.loadEmbedder();
-    }
 
     private async loadEmbedder(): Promise<void> {
         if (this.embedder) return;

@@ -10,3 +10,6 @@ export const OCR_RENDER_SCALE = 2.0;
 export const ENABLE_HTML_PARSING = process.env.ENABLE_HTML_PARSING === 'true';
 export const LARGE_TEXT_STREAM_MB = 25;
 export const OCR_MAX_QUEUE = Number(process.env.OCR_MAX_QUEUE || 20);
+export const OCR_WORKER_IDLE_MS = Number(
+    process.env.OCR_WORKER_IDLE_MS || 60_000,
+);
