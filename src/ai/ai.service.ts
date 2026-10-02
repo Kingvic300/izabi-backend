@@ -565,6 +565,10 @@ export class AiService {
                     throw new BadRequestException(`Groq: Bad Request - ${msg}`);
                 if (status === 401)
                     throw new UnauthorizedException('Groq: Unauthorized Key');
+                if (status === 404)
+                    throw new ServiceUnavailableException(
+                        `Groq: Model or Endpoint Not Found - ${msg}`,
+                    );
                 if (status === 429)
                     throw new ServiceUnavailableException(
                         'Groq: Rate Limit Exceeded',
