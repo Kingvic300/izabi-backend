@@ -514,8 +514,11 @@ export class AiService {
         messages: { role: string; content: string }[],
         key: string,
         stream: boolean,
+        maxTokens: number = this.MAX_OUTPUT_TOKENS,
+        modelOverride?: string,
     ) {
         const model =
+            modelOverride ||
             this.configService.get<string>('GROQ_MODEL') ||
             'llama-3.3-70b-versatile';
 
@@ -546,7 +549,7 @@ export class AiService {
                 {
                     model,
                     messages,
-                    max_tokens: this.MAX_OUTPUT_TOKENS,
+                    max_tokens: maxTokens,
                     stream,
                     temperature: 0.2, // Lower temperature for more consistent JSON
                 },
@@ -1521,6 +1524,21 @@ ${message}`,
                 }
 
                 const summaries: string[] = [];
+                // The reduce step only fits ~MAX_INPUT_TOKENS of context, so cap each
+                // chunk summary to its share. Anything longer is generated (slowly) and
+                // then truncated away.
+                const perChunkMaxTokens = Math.max(
+                    256,
+                    Math.min(
+                        1024,
+                        Math.floor((this.MAX_INPUT_TOKENS - 1500) / chunks.length),
+                    ),
+                );
+                // Chunk mapping is plain extraction; a small model is several times
+                // faster and has far higher Groq rate limits than the 70B default.
+                const mapModel =
+                    this.configService.get<string>('GROQ_MAP_MODEL') ||
+                    'llama-3.1-8b-instant';
                 // Keep concurrency moderate so AI batch jobs don't degrade overall API responsiveness.
                 const BATCH_SIZE = 4;
 
@@ -1545,6 +1563,8 @@ ${message}`,
                                 ],
                                 key,
                                 false,
+                                perChunkMaxTokens,
+                                mapModel,
                             );
                             return res.data.choices[0].message.content;
                         }, userId),

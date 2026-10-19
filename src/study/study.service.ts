@@ -44,7 +44,10 @@ class Semaphore {
         }
     }
 }
-const aiProcessingSemaphore = new Semaphore(2);
+// Max concurrent in-process AI jobs (non-queue path). Raise if Groq limits allow.
+const aiProcessingSemaphore = new Semaphore(
+    Math.max(1, Number(process.env.AI_PROCESSING_CONCURRENCY) || 4),
+);
 
 @Injectable()
 export class StudyService {
@@ -573,7 +576,7 @@ export class StudyService {
                 config.prompt,
                 combinedText,
                 history.userId,
-                undefined,
+                docHash,
                 { language, format: config.format },
             );
 
@@ -670,30 +673,26 @@ export class StudyService {
             (history.metadata as any).progress = 10;
             await (history as any).save();
 
-            const uploadResult = await this.cloudinaryService.uploadFile(files[0]);
-            history.fileUrl = uploadResult.secure_url;
-            
-            // If multiple files, store all URLs in metadata
-            if (files.length > 1) {
-                const allUrls = [uploadResult.secure_url];
-                for (let i = 1; i < files.length; i++) {
-                    const res = await this.cloudinaryService.uploadFile(files[i]);
-                    allUrls.push(res.secure_url);
-                }
-                (history.metadata as any).fileUrls = allUrls;
-            }
-
-            (history.metadata as any).progress = 30;
-            await (history as any).save();
-
-            // Stage 2: Processing with AI
-            const responseText = await this.aiService.processExtractedText(
-                config.prompt,
-                combinedText,
-                userId,
-                undefined,
-                { language, format: config.format },
+            // Upload and AI run in parallel; neither depends on the other.
+            const uploadAll = Promise.all(
+                files.map((f) => this.cloudinaryService.uploadFile(f)),
             );
+            const [uploads, responseText] = await Promise.all([
+                uploadAll,
+                this.aiService.processExtractedText(
+                    config.prompt,
+                    combinedText,
+                    userId,
+                    history.docHash,
+                    { language, format: config.format },
+                ),
+            ]);
+            history.fileUrl = uploads[0].secure_url;
+            if (files.length > 1) {
+                (history.metadata as any).fileUrls = uploads.map(
+                    (u) => u.secure_url,
+                );
+            }
 
             (history.metadata as any).progress = 80;
             await (history as any).save();
@@ -837,7 +836,7 @@ export class StudyService {
                 config.prompt,
                 text,
                 history.userId,
-                undefined,
+                history.docHash,
                 {
                     language: history.language || 'en',
                     format: config.format,
