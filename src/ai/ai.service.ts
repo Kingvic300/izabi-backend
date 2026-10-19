@@ -520,7 +520,12 @@ export class AiService {
         const model =
             modelOverride ||
             this.configService.get<string>('GROQ_MODEL') ||
-            'llama-3.3-70b-versatile';
+            'openai/gpt-oss-120b';
+        // gpt-oss reasoning tokens count against max_tokens; keep them small so
+        // tight caps (chunk mapping) still leave room for the actual answer.
+        const reasoningParams = model.startsWith('openai/gpt-oss')
+            ? { reasoning_effort: 'low' }
+            : {};
 
         // STRICT TOKEN CHECK
         const estimatedTokens = this.estimateTotalTokens(messages);
@@ -552,6 +557,7 @@ export class AiService {
                     max_tokens: maxTokens,
                     stream,
                     temperature: 0.2, // Lower temperature for more consistent JSON
+                    ...reasoningParams,
                 },
                 requestConfig,
             );
@@ -1535,10 +1541,10 @@ ${message}`,
                     ),
                 );
                 // Chunk mapping is plain extraction; a small model is several times
-                // faster and has far higher Groq rate limits than the 70B default.
+                // faster and has far higher Groq rate limits than the main model.
                 const mapModel =
                     this.configService.get<string>('GROQ_MAP_MODEL') ||
-                    'llama-3.1-8b-instant';
+                    'openai/gpt-oss-20b';
                 // Keep concurrency moderate so AI batch jobs don't degrade overall API responsiveness.
                 const BATCH_SIZE = 4;
 
